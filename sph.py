@@ -4,7 +4,7 @@ from __future__ import print_function
 import numpy as np
 from numpy import *
 import scipy.integrate
-from math import sqrt, factorial
+from math import factorial
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
@@ -18,7 +18,7 @@ import kernel
 import threading
 
 import gi
-gi.require_version('Gtk', '2.0')
+#gi.require_version('Gtk', '2.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf
 
 
