@@ -5,8 +5,8 @@ import numpy as np
 from numpy import *
 import scipy.integrate
 from math import sqrt, factorial
-#import matplotlib
-#matplotlib.use('Agg')
+import matplotlib as mpl
+mpl.use('Agg')
 import matplotlib.pyplot as plt
 import time
 import os, sys
