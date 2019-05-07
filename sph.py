@@ -2,6 +2,7 @@
 from __future__ import print_function
 
 import numpy as np
+from numpy import *
 import scipy.integrate
 from math import sqrt, factorial
 import matplotlib as mpl
@@ -10,9 +11,16 @@ import matplotlib.pyplot as plt
 import time
 import os, sys
 import traceback
+import glob
 
 import summation
 import kernel
+import threading
+
+import gi
+gi.require_version('Gtk', '2.0')
+from gi.repository import Gtk, Gdk, GdkPixbuf
+
 
 #def SL2(fp,fv):
     #return lambda p, q, dt: ( lambda dp1: (
@@ -158,8 +166,8 @@ class TimeIntegrators:
                 return p, q
             return integrator
 
-_i=np.s_[:,None]
-_j=np.s_[None,:]
+_i=s_[:,None]
+_j=s_[None,:]
 
 class AnalyticalSolution:
     @staticmethod
@@ -169,24 +177,24 @@ class AnalyticalSolution:
             n += 1
             fn = f(n)
             F += fn
-            if np.all( np.abs(fn) <= np.abs(eps*F) ):
+            if all( abs(fn) <= abs(eps*F) ):
                 return F
 
     def __init__(self, visc, u_0 = 1, L = 1 ):
         self.visc = visc
         self.L = L
         self.u_0 = u_0
-        self.k = np.pi / self.L
+        self.k = pi / self.L
         self.K = 4 * self.k * self.visc
-        self.I0 = scipy.special.i0( u_0*L/(2*np.pi*visc) )
+        self.I0 = scipy.special.i0( u_0*L/(2*pi*visc) )
         
-    def Iv(self,n): return scipy.special.iv( n, self.u_0*self.L/(2*np.pi*self.visc) )
+    def Iv(self,n): return scipy.special.iv( n, self.u_0*self.L/(2*pi*self.visc) )
     
-    def t_term(self, n, t ): return np.exp( -n**2 * self.k**2 * self.visc*t )
+    def t_term(self, n, t ): return exp( -n**2 * self.k**2 * self.visc*t )
     
-    def x_N(self, n, x, diff = 0 ): return np.imag( np.exp( 1.j * n*self.k*x ) * (1.j * n*self.k)**diff )
+    def x_N(self, n, x, diff = 0 ): return imag( exp( 1.j * n*self.k*x ) * (1.j * n*self.k)**diff )
 
-    def x_D(self, n, x, diff = 0 ): return np.real( np.exp( 1.j * n*self.k*x ) * (1.j * n*self.k)**diff )
+    def x_D(self, n, x, diff = 0 ): return real( exp( 1.j * n*self.k*x ) * (1.j * n*self.k)**diff )
     
     def N(self, x, t, diff_x = 0 ):
         return AnalyticalSolution.sum_converge_array(
@@ -244,20 +252,20 @@ def diff_array( a, x ):
     return (a[2:] - a[:-2])/(x[2:] - x[:-2])
 
 def calculate_h( h, q, N, status, dim = 1, eps = 1e-1 ):
-    hnew = np.array(h)
-    NN = np.ones_like(q)*N
+    hnew = array(h)
+    NN = ones_like(q)*N
     while 1:
-        prevh = np.array(hnew)
+        prevh = array(hnew)
         hnew = h0*NN/rho(q,hnew,0,q)**(1./dim)
-        dist_h = np.abs( q[_i] - q[_j] )/hnew[_i]
+        dist_h = abs( q[_i] - q[_j] )/hnew[_i]
         dist_h[ dist_h <= 2 ] = 1
         dist_h[ dist_h > 2 ] = 0
-        count = np.sum( dist_h, axis = 0 )
-        #print( 'count', count[ status_border == 0 ], len(count), np.all( count[ status_border == 0 ] == N ) )
-        if np.all( count[ status == 0 ] == N ): break
-        maxdiff = np.max( np.abs(prevh-hnew) )
-        print( 'diff', np.max( np.abs(prevh-hnew) ) )
-        prevh = np.array(hnew)
+        count = sum( dist_h, axis = 0 )
+        #print( 'count', count[ status_border == 0 ], len(count), all( count[ status_border == 0 ] == N ) )
+        if all( count[ status == 0 ] == N ): break
+        maxdiff = max( abs(prevh-hnew) )
+        print( 'diff', max( abs(prevh-hnew) ) )
+        prevh = array(hnew)
         if maxdiff/h0 < 1e-2: break
         break
     return hnew
@@ -265,12 +273,12 @@ def calculate_h( h, q, N, status, dim = 1, eps = 1e-1 ):
 def calculate_h_dist( h, q, p, dt, N, dim = 1, eps = 1e-1 ):
     fraction = .1
     q1 = q+p*dt
-    dist_h = np.abs( q1[_i]-q1[_j] )/h[_i]
-    dist_h[dist_h < .1*fraction] = np.max(dist_h)
-    #dist_h_min = np.min( dist_h, axis = 1 )
-    dist_h_min = np.min( dist_h, axis = 0 )
+    dist_h = abs( q1[_i]-q1[_j] )/h[_i]
+    dist_h[dist_h < .1*fraction] = max(dist_h)
+    #dist_h_min = min( dist_h, axis = 1 )
+    dist_h_min = min( dist_h, axis = 0 )
     
-    hnew = np.array(h)
+    hnew = array(h)
     #hnew[dist_h_min < fraction] *= dist_h_min[dist_h_min < fraction]/fraction
     hnew *= dist_h_min/fraction
     return hnew
@@ -279,7 +287,7 @@ import timeit
 
 colors = ['r','g','b','m','y','c']
 
-def generate_border( t, r, s, ds, h, method_smooth = 'self', method_sum = 'np_sum' ):
+def generate_border( t, r, s, ds, h, method_smooth = 'self', method_sum = 'sum' ):
     
     dists = None
     if method_smooth == 'self':
@@ -290,14 +298,14 @@ def generate_border( t, r, s, ds, h, method_smooth = 'self', method_sum = 'np_su
         H = .5*(h[_i]+h[_j])
 
     dists = (r[_i] - r[_j])/H
-    dists[np.abs(dists)>3] = 0
+    dists[abs(dists)>3] = 0
     #inds = border_indices(r, h, interpolator )
     numer = summation.sum_2( dists, axis=0, method = method_sum )
-    denom = summation.sum_2( np.abs(dists), axis=0, method = method_sum )
+    denom = summation.sum_2( abs(dists), axis=0, method = method_sum )
     #print(numer)
     #print(denom)
     uni = numer/denom
-    inds = np.argwhere( np.abs(uni) == 1 )
+    inds = argwhere( abs(uni) == 1 )
     print('border inds',inds.flatten(), uni[inds].flatten() )
     newt = []
     newr = []
@@ -306,37 +314,37 @@ def generate_border( t, r, s, ds, h, method_smooth = 'self', method_sum = 'np_su
     newh = []
 
     for ind in inds:
-        neighbors = np.argwhere( np.abs(r-r[ind])<3*h[ind] )
+        neighbors = argwhere( abs(r-r[ind])<3*h[ind] )
         dist = r[neighbors] - r[ind]
-        mask = np.all( [np.abs(dist)>0, dist*uni[ind] > 0 ], axis=0 )
-        newr = np.append( newr, r[ind] - dist[mask] )
+        mask = all( [abs(dist)>0, dist*uni[ind] > 0 ], axis=0 )
+        newr = append( newr, r[ind] - dist[mask] )
         
         delta = s[neighbors] - s[ind]
-        news = np.append( news, s[ind] - delta[mask] )
+        news = append( news, s[ind] - delta[mask] )
 
         delta = ds[neighbors] - ds[ind]
-        newds = np.append( news, ds[ind] + delta[mask] )
+        newds = append( news, ds[ind] + delta[mask] )
 
         deltah = h[neighbors] - h[ind]
-        newh = np.append( newh, h[ind] + deltah[mask] )
+        newh = append( newh, h[ind] + deltah[mask] )
 
         deltat = t[neighbors] - t[ind]
-        newt = np.append( newt, t[ind] + deltat[mask] )
+        newt = append( newt, t[ind] + deltat[mask] )
 
     #print('newr',newr)
-    return newt, newr, news, newds, newh, -1*np.ones_like(newr)
+    return newt, newr, news, newds, newh, -1*ones_like(newr)
     
 
 def merge( r, p, h, status, fuse=False ):
     fraction = .2
-    inds = np.argwhere( h[status==0] < fraction*h0 )
+    inds = argwhere( h[status==0] < fraction*h0 )
     print( 'h<h0', inds.flatten() , end='; ')
     return r, p, h, status
     
     for ind in inds:
         print( 'h/h0', h[ind]/h0, 'id', ind )
     
-    neighbors = np.argwhere( np.abs(r-r[ind]) < .5*fraction*h0 )
+    neighbors = argwhere( abs(r-r[ind]) < .5*fraction*h0 )
     print( 'neighbors', neighbors.flatten() )
     
     if h[ind] > fraction*h0:
@@ -344,24 +352,24 @@ def merge( r, p, h, status, fuse=False ):
 
     if fuse:
         print( 'fuse!!!' )
-        r[neighbors] = np.mean( r[neighbors] )
-        p[neighbors] = np.mean( p[neighbors] )
-        h[neighbors] = np.mean( h[neighbors] )
+        r[neighbors] = mean( r[neighbors] )
+        p[neighbors] = mean( p[neighbors] )
+        h[neighbors] = mean( h[neighbors] )
         return r, p, h, status
     
     print( 'before', r[ind], p[ind], h[ind] )
-    r[ind] = np.mean( r[neighbors] )
-    #p[ind] = np.mean( p[neighbors] )
-    #h[ind] = np.mean( h[neighbors] )
+    r[ind] = mean( r[neighbors] )
+    #p[ind] = mean( p[neighbors] )
+    #h[ind] = mean( h[neighbors] )
     print( 'after', r[ind], p[ind], h[ind] )
     
     print( 'merge!!!' )
     print( 'before', r.shape )
-    r = np.delete(r, remove)
-    p = np.delete(p, remove)
-    h = np.delete(h, remove)
+    r = delete(r, remove)
+    p = delete(p, remove)
+    h = delete(h, remove)
 
-    status = np.delete(status, remove)
+    status = delete(status, remove)
     print( 'after', r.shape )
 
     return r, p, h, status
@@ -386,11 +394,11 @@ class BaseSPH:
             else:
                 val = W( x[_j], r[_i], self.h0 )*f
             
-            valp = np.zeros_like(val)
+            valp = zeros_like(val)
             valp[val > 0] = val[val>0]
-            valn = np.zeros_like(val)
+            valn = zeros_like(val)
             valn[val < 0] = val[val<0]
-            return np.sum( valp, axis=0 ) + np.sum( valn, axis=0 )
+            return sum( valp, axis=0 ) + sum( valn, axis=0 )
         if function:
             return inner
         else:
@@ -413,10 +421,10 @@ class BaseSPH:
     def deltaAbs( self, x, D=0, power=1 ):
         if power == 0: diff = 1
         else: diff = x[_i] - x[_j]
-        return self.interpolation( np.abs(diff)**power/self.phi(x)[_i], x, D=D )
+        return self.interpolation( abs(diff)**power/self.phi(x)[_i], x, D=D )
 
     def fdelta( self, f, x, D=0, power=1 ):
-        if f is None: f = np.ones_like(x)
+        if f is None: f = ones_like(x)
         if power == 0: diff = 1
         else: diff = x[_i] - x[_j]
         if power < 0: diff[ diff == 0] = self.h0
@@ -446,34 +454,34 @@ class StandardSPH:
     
 class KernelGradientFree:
     def compute_invM( self, r ):
-        m = np.array( [[ self.sph.delta( r, power=i+j+self.basepower, D=0 ) for j in range(self.order)] for i in range(self.order) ] ).T
-        self.det = np.abs( np.linalg.det( m ) )
-        self.invM = np.zeros_like( m )
-        self.invM[self.det > 0] = np.linalg.inv( m[self.det > 0] )
+        m = array( [[ self.sph.delta( r, power=i+j+self.basepower, D=0 ) for j in range(self.order)] for i in range(self.order) ] ).T
+        self.det = abs( linalg.det( m ) )
+        self.invM = zeros_like( m )
+        self.invM[self.det > 0] = linalg.inv( m[self.det > 0] )
         return self.invM
     
     def compute_V( self, f, r ):
-        self.V = np.array([ self.sph.fdelta( f, r, power=i+self.basepower, D=0 ) for i in range(self.order) ] ).T
+        self.V = array([ self.sph.fdelta( f, r, power=i+self.basepower, D=0 ) for i in range(self.order) ] ).T
         return self.V
 
     def compute_F( self, f, r ):
-        self.F = np.einsum( '...ij,...i->...j', self.compute_invM( r ), self.compute_V( f, r ) ).T
+        self.F = einsum( '...ij,...i->...j', self.compute_invM( r ), self.compute_V( f, r ) ).T
         return self.F
 
     def compute_F2( self, f, r ):
-        m = np.array( [[ self.sph.delta( r, power=i+j+self.basepower, D=0 ) for j in range(self.order)] for i in range(self.order) ] ).T
-        self.det = np.abs( np.linalg.det( m ) )
-        self.invM = np.zeros_like( m )
-        self.invM[self.det > 0] = np.linalg.inv( m[self.det > 0] )
+        m = array( [[ self.sph.delta( r, power=i+j+self.basepower, D=0 ) for j in range(self.order)] for i in range(self.order) ] ).T
+        self.det = abs( linalg.det( m ) )
+        self.invM = zeros_like( m )
+        self.invM[self.det > 0] = linalg.inv( m[self.det > 0] )
 
-        self.V = np.array([ self.sph.fdelta( f, r, power=i+self.basepower, D=0 ) for i in range(self.order) ]).T
-        self.F = np.zeros_like( self.V )
-        self.F[ self.det>0 ] = np.einsum( '...ij,...i->...j', self.invM[ self.det>0 ], self.V[ self.det>0 ] )
+        self.V = array([ self.sph.fdelta( f, r, power=i+self.basepower, D=0 ) for i in range(self.order) ]).T
+        self.F = zeros_like( self.V )
+        self.F[ self.det>0 ] = einsum( '...ij,...i->...j', self.invM[ self.det>0 ], self.V[ self.det>0 ] )
         
-        if np.sum( (self.det==0).astype(int) ) > 0:
-            print( 'det==0', np.sum( (self.det==0).astype(int) ) )
-            zeros = np.zeros_like( f[ self.det==0 ] )
-            self.F[ self.det==0 ] = np.array([ f[ self.det==0 ] if i==0 else zeros for i in range(self.order) ]).T
+        if sum( (self.det==0).astype(int) ) > 0:
+            print( 'det==0', sum( (self.det==0).astype(int) ) )
+            zeros = zeros_like( f[ self.det==0 ] )
+            self.F[ self.det==0 ] = array([ f[ self.det==0 ] if i==0 else zeros for i in range(self.order) ]).T
 
         return self.F.T
     
@@ -490,16 +498,39 @@ class KernelGradientFree:
     def diff( self, f, r ):
         return self.compute_F2( f, r )[1]
     
-    def interp( self, f, r, x ):
-         return self.compute_F2( f, r )[0]
+    def interp( self, f, r ):
+        return self.compute_F2( f, r )[0]
 
 class Output:
     def makeName( self, s ):
-        return 'plots/sph_%svst_%s'%(s, self.name)
-        
+        return self.name.replace('.dat', '.%s.dat'%s )
+
+    def figname( self ):
+        return self.name.replace('.dat', '.png' )
+    
+    def __del__( self ):
+        Output.cleanLocks( os.path.dirname(self.name) )
+    
     def __init__( self, name ):
         self.name = name
         self.doneHeader = False
+        if self.islocked():
+            print('file is locked')
+            exit(0)
+        self.lock()
+        
+    def lock(self):
+        open( self.name+'.lock', 'w')
+    
+    def islocked(self):
+        return os.path.exists( self.name+'.lock' )
+    
+    @staticmethod
+    def cleanLocks( dir ):
+        print( glob.glob( dir+'/*.lock' ) )
+        for lock in glob.glob( dir+'/*.lock' ):
+            print('removing lock', lock)
+            os.remove( lock )
         
     def header( self, N ):
         for s in [ 'r', 'u' ]:
@@ -530,16 +561,16 @@ class Output:
                     t += [ float(linesplit[0]) ]
                 elif s == 'u':
                     u += [ map( float, linesplit[1:] ) ]
-        t = np.array(t)
-        r = np.array(r)
-        u = np.array(u)
+        t = array(t)
+        r = array(r)
+        u = array(u)
         return t, r, u
         
-        for s, arr in [ ('r', r), ('u', p) ]:
-            fname = 'plots/sph_%svst_%s'%(s, self.name)
-            f = open( fname, 'a' )
-            f.write("%f "%t + ' '.join( map(lambda x: '%f'%x, arr ) ) + '\n' )
-            f.close()
+        #for s, arr in [ ('r', r), ('u', p) ]:
+            #fname = 'plots/sph_%svst_%s'%(s, self.name)
+            #f = open( fname, 'a' )
+            #f.write("%f "%t + ' '.join( map(lambda x: '%f'%x, arr ) ) + '\n' )
+            #f.close()
 
 class Burger:
     def __init__(self, viscosityCoefficient = None, diff = None ):
@@ -616,7 +647,7 @@ class LagrangianSystem:
     def removeBoundary( self, t, r, u ):
         return r, u
 
-    def integrate( self, fname ):
+    def integrate( self, fname, signal=None ):
         
         t, r, u = float(self.t), self.r.copy(), self.u.copy()
 
@@ -635,26 +666,58 @@ class LagrangianSystem:
             dt = self.timeStep
             t, r, u = self.timeIntegrator( self.dot_r, self.dot_u )( t, r, u, dt )
             r, u = self.boundaryCondition( t, r, u )
-            r, u = self.fixCrossing( r, u )
+            r, u = self.fixCrossingPair( r, u )
 
             stream.write( t, r, u )
             elapsed = time.time() - t0
             print( 'clock %.2e (%.2e/N) t=%s'%( elapsed, elapsed/len(r), t ), end='; ' )
 
-            crossed = np.argwhere( r[1:] < r[:-1] )
+            crossed = argwhere( r[1:] < r[:-1] )
             if len(crossed) > 0:
                 print( '(crossed %d)'%len(crossed), end='; ' )
-                print( crossed )
-                exit(0)
+                print( crossed.T )
+                #exit(0)
 
             if np.min(t) >= self.endTime:
                 print( 'reached tf; simulation ended' )
                 break
-            plotOutputs( fname, fname.replace( 'dat', 'pdf' ) )
+            plotOutputs( stream )
+            if signal is not None: signal()
             print('')
         print( 'finished' )
-        plotOutputs( fname, fname.replace( 'dat', 'pdf' ) )
+        plotOutputs( stream )
         return
+    
+    def fixCrossingPair( self, r, u ):
+        ufix = u[:]
+        n = 0
+        while 1:
+            n+=1
+            rnext = r + ufix*self.timeStep*2
+            frozenCluster = zeros_like(r)
+            
+            crossed = argwhere( rnext[1:] < rnext[:-1] ).T[0]
+            if len(crossed) == 0:
+                return r, ufix
+            print( 'will cross', len(crossed) )
+            for cross in crossed:
+                newCluster = int(max( frozenCluster ))+1
+                if frozenCluster[cross] == 0:
+                    frozenCluster[cross] = newCluster
+                    frozenCluster[cross+1] = newCluster
+                    
+                else:
+                    frozenCluster[cross+1] = frozenCluster[cross]
+            
+            u_interp = self.interp( ufix, rnext )
+            ufixnew = ufix[:]
+            for i in range(1, int(max( frozenCluster ))+1 ):
+                args = argwhere( frozenCluster == i )
+                if len(args) == 0: continue
+                print('freeze', i, args.T )
+                ufixnew[ args ] = u_interp[ args ]
+            ufix = ufixnew[:]
+        return r, ufix
     
     def fixCrossing( self, r, u ):
         ufix = u.copy()
@@ -662,15 +725,15 @@ class LagrangianSystem:
         while 1:
             n+=1
             rnext = r + ufix*self.timeStep*2
-            frozenCluster = np.zeros_like(r)
+            frozenCluster = zeros_like(r)
             
-            crossed = np.argwhere( rnext[1:] < rnext[:-1] ).T[0]
+            crossed = argwhere( rnext[1:] < rnext[:-1] ).T[0]
             if len(crossed) == 0:
                 return r, ufix
             print( 'crossed', len(crossed) )
             for crossPair in crossed:
                 for cross in [crossPair, crossPair+1]:
-                    newCluster = int(np.max( frozenCluster ))+1
+                    newCluster = int(max( frozenCluster ))+1
                     if frozenCluster[cross-1] == 0 and frozenCluster[cross+1] == 0:
                         frozenCluster[cross] = newCluster
                         
@@ -686,11 +749,11 @@ class LagrangianSystem:
                     else:
                         frozenCluster[cross] = frozenCluster[cross+1]
             
-            for i in range(1, int(np.max( frozenCluster ))+1 ):
-                args = np.argwhere( frozenCluster == i )
+            for i in range(1, int(max( frozenCluster ))+1 ):
+                args = argwhere( frozenCluster == i )
                 if len(args) == 0: continue
                 print('freeze', i, args.T )
-                uCM = np.sum( u[args] )/len(args)
+                uCM = sum( u[args] )/len(args)
                 ufix[ args ] = uCM + ( ufix[args] - uCM )*.9**n
 
 def append( d, e, v ):
@@ -709,41 +772,242 @@ def readFile( fname ):
         linesplit = line.replace('  ', ' ').strip(' \n').split(' ')
         t += [ float(linesplit[0]) ]
         r += [ map( float, linesplit[1:] ) ]
-    t = np.array(t)
-    r = np.array(r)
+    t = array(t)
+    r = array(r)
     print(r.shape)
     return t, r
     
-def plotOutputs( fname, outname ):
+def plotOutputs( stream ):
     plt.rcParams['font.size'] = 12.
     plt.rcParams['font.family'] = "serif"
     plt.rcParams["xtick.labelsize"] = 'xx-small'
     plt.rcParams["ytick.labelsize"] = 'xx-small'
     width = plt.rcParams['figure.figsize'][0]/2
 
-    fig = plt.figure( figsize = (width,width) )
-    axr = fig.add_subplot(211)
-    axu = fig.add_subplot(212)
+    fig = plt.figure( figsize = (3*width,width*.75) )
+    grid = plt.GridSpec(2, 2, hspace=0, wspace=0)
+    axr = fig.add_subplot(grid[0,0])
+    axu = fig.add_subplot(grid[1,1])
+    axprofile = fig.add_subplot(grid[1,0], sharex=axr, sharey=axu)
+    fig.subplots_adjust(wspace=0)
+    axr.grid(True)
+    axu.grid(True)
+    axprofile.grid(True)
 
-    stream = Output( fname )
     t, r, u = stream.read()
 
-    indices = np.argwhere( np.abs(r[0,:] - 1) < 1.1 )
+    indices = argwhere( abs(r[0,:] - 1) < 1.1 )
     tmax = 1.
     for i in indices:
         axr.plot( r[:,i], t, '-', lw=.5 )
-        axu.plot( u[:,i], t, '-', lw=.5 )
-        
+        axu.plot(t, u[:,i], '-', lw=.5 )
+    axprofile.plot( r[-1,:], u[-1,:], '-', label='t=%s'%t[-1] )
+    axprofile.plot( r[0,:], u[0,:], ':', label='t=%s'%t[0] )
     axr.set_ylabel('t')
-    axr.set_xlabel( r'r(t)' )
-    axu.set_ylabel('t')
-    axu.set_xlabel( r'u(t)' )
+    axu.set_xlabel('t')
+    axprofile.set_xlabel( r'r(t)' )
+    axprofile.set_ylabel( r'u(t)' )
+    #axu.set_xlabel( r'u(t)' )
+    axprofile.legend( fancybox=True, framealpha=0 )
+    
+    plt.setp(axu.get_yticklabels(), visible=False)
+    plt.setp(axr.get_xticklabels(), visible=False)
+    #plt.setp(axu.get_yticklabels(), visible=False)
+    # remove last tick label for the second subplot
+    #yticks = axu.yaxis.get_major_ticks()
+    #yticks[-1].label1.set_visible(False)
 
     fig.tight_layout()
-    fig.savefig( outname )
+    fig.savefig( stream.figname() )
+    print('savefig', stream.figname() )
     plt.close()
 
+class SimulationApp(Gtk.Window):
+    
+    def __init__(self):
+        Gtk.Window.__init__( self, title="SPH Simulation" )
+        Output.cleanLocks( 'simulations/' )
+        self.connect( 'destroy', Gtk.main_quit )
+        self.set_border_width(3)
+        self.maximize()
+        
+        self.vbox = Gtk.VBox()
+
+        self.simulationPanels = []
+        self.paramsList = ['dt', 'h', 'N', 'IC', 'v', 'SPH' ]
+        self.paramsEntry = []
+        self.images = []
+        self.threads = []
+        self.newSimulationPanel( self.simulationPanels )
+        self.newSimulationPanel( self.simulationPanels )
+        self.newSimulationPanel( self.simulationPanels, empty = True )
+        
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.add_with_viewport( self.vbox )
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.add( scrolled )
+            
+        self.show_all()
+    
+    def onaddclicked( self, widget ):
+        self.simulationPanels[-1].destroy()
+        del self.simulationPanels[-1]
+        self.newSimulationPanel( self.simulationPanels )
+        self.newSimulationPanel( self.simulationPanels, True )
+        self.show_all()
+
+    def onminusclicked( self, widget, box ):
+        box.destroy()
+        ind = self.simulationPanels.index(box)
+        self.simulationPanels[ ind ].destroy()
+        del self.simulationPanels[ ind ]
+        del self.paramsEntry[ ind ]
+        self.show_all()
+        
+    def newSimulationPanel(self, panel, empty = False):
+        box = Gtk.HBox()
+        panel.append( box )
+        this = panel[-1]
+        self.vbox.pack_start(box, False, False, 3 )
+
+        if empty:
+            button = Gtk.Button()
+            box.pack_start( button,  False, False, 3 )
+            button.set_label(' + ')
+            button.connect( 'clicked', self.onaddclicked )
+            return 
+        
+        options = Gtk.VBox()
+        box.pack_start( options, False, False, 3 )
+        
+        firstLine = Gtk.HBox()
+        title = Gtk.Label()
+        destroyButton = Gtk.Button()
+        options.pack_start(firstLine, False, False, 3 )
+
+        firstLine.pack_start(title, True, True, 3)
+        firstLine.pack_end(destroyButton, False, False, 3)
+
+        title.set_label('simulation')
+        destroyButton.set_label(' x ')
+        destroyButton.connect( 'clicked', self.onminusclicked, box )
+        
+        secondLine = Gtk.HBox()
+        thirdLine = Gtk.HBox()
+        fourthLine = Gtk.HBox()
+        options.pack_start(secondLine, False, False, 3 )
+        options.pack_start(thirdLine, False, False, 3 )
+        options.pack_start(fourthLine, False, False, 3 )
+        label = {}
+        self.paramsEntry.append( {} )
+        for key in self.paramsList:
+            label[key] = Gtk.Label()
+            label[key].set_label(key)
+            self.paramsEntry[-1][key] = Gtk.Entry()
+            self.paramsEntry[-1][key].set_width_chars(5)
+            if key == 'IC':
+                thirdLine.pack_start( label[key], False, False, 1)
+                thirdLine.pack_start( self.paramsEntry[-1][key], True, True, 1)
+            elif key == 'SPH':
+                fourthLine.pack_start( label[key], False, False, 1)
+                fourthLine.pack_start( self.paramsEntry[-1][key], True, True, 1)
+            else:
+                secondLine.pack_start( label[key], False, False, 1)
+                secondLine.pack_start( self.paramsEntry[-1][key], True, True, 1)
+        if len( self.paramsEntry ) == 1:
+            self.paramsEntry[-1]['dt'].set_text( '0.01' )
+            self.paramsEntry[-1]['h'].set_text( '0.05' )
+            self.paramsEntry[-1]['N'].set_text( '125' )
+            self.paramsEntry[-1]['v'].set_text( '0.1' )
+            self.paramsEntry[-1]['IC'].set_text( 'sin(pi*x)' )
+            self.paramsEntry[-1]['SPH'].set_text( 'kgf3' )
+        elif len( self.paramsEntry ) == 2:
+            self.paramsEntry[-1]['dt'].set_text( '0.01' )
+            self.paramsEntry[-1]['h'].set_text( '0.05' )
+            self.paramsEntry[-1]['N'].set_text( '125' )
+            self.paramsEntry[-1]['v'].set_text( '0.01' )
+            self.paramsEntry[-1]['IC'].set_text( 'norm(x,.5,.2)' )
+            self.paramsEntry[-1]['SPH'].set_text( 'kgf3' )
+        else:
+            self.paramsEntry[-1]['dt'].set_text( self.paramsEntry[-2]['dt'].get_text() )
+            self.paramsEntry[-1]['h'].set_text( self.paramsEntry[-2]['h'].get_text() )
+            self.paramsEntry[-1]['N'].set_text( self.paramsEntry[-2]['N'].get_text() )
+            self.paramsEntry[-1]['v'].set_text( self.paramsEntry[-2]['v'].get_text() )
+            self.paramsEntry[-1]['IC'].set_text( self.paramsEntry[-2]['IC'].get_text() )
+            self.paramsEntry[-1]['SPH'].set_text( self.paramsEntry[-2]['SPH'].get_text() )
+        
+        runButton = Gtk.Button()
+        options.pack_end(runButton, False, False, 3 )
+        runButton.set_label('run')
+        runButton.connect( 'clicked', self.onclickrun, len(panel)-1 )
+        
+        self.images.append( Gtk.Image() )
+        #scrolled = Gtk.ScrolledWindow()
+        #scrolled.add_with_viewport(self.images[-1])
+        #scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+
+        box.pack_start( self.images[-1], True, True, 3 )
+        return
+    
+    def refreshImage( self, panelIndex, figname ):
+        self.images[panelIndex].set_from_pixbuf( GdkPixbuf.Pixbuf.new_from_file( figname ) )
+        print('signal', figname )
+        self.show_all()
+        
+    def onclickrun( self, widget, panelIndex ):
+        print( 'run panelIndex', panelIndex )
+        L = 1.
+        u_0 = 1.
+        N = int(self.paramsEntry[panelIndex]['N'].get_text())
+        dt = float(self.paramsEntry[panelIndex]['dt'].get_text())
+        h0 = float(self.paramsEntry[panelIndex]['h'].get_text())
+        v = float(self.paramsEntry[panelIndex]['v'].get_text())
+        ic_str = self.paramsEntry[panelIndex]['IC'].get_text()
+        sph_str = self.paramsEntry[panelIndex]['SPH'].get_text()
+
+        outname = 'simulations/dt%sh%sN%sv%s_ic=%s_sph%s.dat'%(dt,h0,N,v,ic_str,sph_str)
+        figname = outname.replace('.dat', '.png')
+        print( 'outname', outname, figname )
+        if not os.path.exists('simulations/'): os.makedirs('simulations/')
+
+        ic = lambda x: eval( ic_str )
+        #def u0( x, u_0, L ):
+            #return u_0*sin(pi*x/L)
+
+        system = LagrangianSystem()
+        system.set_timeStep( dt )
+        system.set_endTime( 1. )
+        system.set_initialCondition( r0 = linspace( 0., 2.*L, N ), u0 = ic )
+        
+        burger = Burger()
+        burger.set_viscosityCoefficient( v )
+        if sph_str.startswith('standard'):
+            interpolator = StandardSPH( sph = BaseSPH( h0 = h0, W = 'qspline', density = N/L*h0 ) )
+        elif sph_str.startswith('kgf'):
+            if sph_str[-1].isdigit(): order=int(sph_str[-1])
+            else: order=3
+            interpolator = KernelGradientFree( sph = BaseSPH( h0 = h0, W = 'qspline', density = N/L*h0 ), order = order, basepower = 0 )
+        else:
+            print('unpredicted SPH method')
+            return
+        burger.set_diff( interpolator )
+        system.set_equations( burger )
+        system.set_interpolator( interpolator )
+        system.set_integrator( TimeIntegrators.Sympletic.RungeKutta4 )
+        
+        def run():
+            return system.integrate( outname, signal=lambda: self.refreshImage(panelIndex, figname) )
+        self.threads.append( threading.Thread(target=run) )
+        self.threads[-1].daemon = True
+        self.threads[-1].start()
+        return
+
+norm = lambda x, loc=0, scale=1.: exp(-.5*(x-loc)**2/scale**2)/sqrt(2*pi)/scale
+
 if __name__ == '__main__':
+    app = SimulationApp()
+    Gtk.main()
+    exit(0)
     print(sys.argv)
     if len(sys.argv) > 1:
         plotOutputs( sys.argv[-1] )
@@ -754,13 +1018,13 @@ if __name__ == '__main__':
     N = 251
 
     def u0( x, u_0, L ):
-        return u_0*np.sin(np.pi*x/L)
+        return u_0*sin(pi*x/L)
 
     v = .05
     system = LagrangianSystem()
     system.set_timeStep( .01 )
     system.set_endTime( 3. )
-    system.set_initialCondition( r0 = np.linspace( 0., 2.*L, N ), u0 = lambda x: u0( x, u_0, L ) )
+    system.set_initialCondition( r0 = linspace( 0., 2.*L, N ), u0 = lambda x: u0( x, u_0, L ) )
     
     if False:
         anaSol = AnalyticalSolution( v )
@@ -777,6 +1041,7 @@ if __name__ == '__main__':
     burger.set_viscosityCoefficient( v )
     burger.set_diff( KernelGradientFree( sph = BaseSPH( h0 = h0, W = 'qspline', density = N/L*h0 ), order = 3, basepower = 0 ) )
     system.set_equations( burger )
+
     system.set_integrator( TimeIntegrators.Sympletic.RungeKutta4 )
     system.integrate( 'simulationv%s.dat'%v )
     
