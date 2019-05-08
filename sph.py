@@ -19,7 +19,7 @@ import threading
 
 import gi
 #gi.require_version('Gtk', '2.0')
-from gi.repository import Gtk, Gdk, GdkPixbuf
+from gi.repository import Gtk, Gdk, GdkPixbuf, GObject, GLib
 
 #def SL2(fp,fv):
     #return lambda p, q, dt: ( lambda dp1: (
@@ -598,6 +598,7 @@ class LagrangianSystem:
     def __init__( self ):
         self.dot_r = None
         self.dot_u = None
+        self.loopnumber = 0
         
     def set_timeStep( self, dt0 ):
         self.timeStep = dt0
@@ -708,7 +709,7 @@ class LagrangianSystem:
                 else:
                     frozenCluster[cross+1] = frozenCluster[cross]
             
-            u_interp = self.interp( ufix, rnext )
+            u_interp = self.interp( ufix, r )
             ufixnew = ufix[:]
             for i in range(1, int(max( frozenCluster ))+1 ):
                 args = argwhere( frozenCluster == i )
@@ -824,6 +825,7 @@ def plotOutputs( stream ):
 class SimulationApp(Gtk.Window):
     
     def __init__(self):
+        GObject.threads_init()
         Gtk.Window.__init__( self, title="SPH Simulation" )
         Output.cleanLocks( 'simulations/' )
         self.connect( 'destroy', Gtk.main_quit )
@@ -836,6 +838,7 @@ class SimulationApp(Gtk.Window):
         self.paramsList = ['dt', 'h', 'N', 'IC', 'v', 'SPH' ]
         self.paramsEntry = []
         self.images = []
+        self.pixbufs = []
         self.threads = []
         self.newSimulationPanel( self.simulationPanels )
         self.newSimulationPanel( self.simulationPanels )
@@ -941,17 +944,18 @@ class SimulationApp(Gtk.Window):
         runButton.connect( 'clicked', self.onclickrun, len(panel)-1 )
         
         self.images.append( Gtk.Image() )
+        self.pixbufs.append( None )
         #scrolled = Gtk.ScrolledWindow()
         #scrolled.add_with_viewport(self.images[-1])
         #scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
 
         box.pack_start( self.images[-1], True, True, 3 )
         return
-    
+
     def refreshImage( self, panelIndex, figname ):
-        self.images[panelIndex].set_from_pixbuf( GdkPixbuf.Pixbuf.new_from_file( figname ) )
+        self.images[panelIndex].set_from_pixbuf( GdkPixbuf.Pixbuf.new_from_file(figname) )
         print('signal', figname )
-        self.show_all()
+        self.images[panelIndex].show()
         
     def onclickrun( self, widget, panelIndex ):
         print( 'run panelIndex', panelIndex )
@@ -995,7 +999,7 @@ class SimulationApp(Gtk.Window):
         system.set_integrator( TimeIntegrators.Sympletic.RungeKutta4 )
         
         def run():
-            return system.integrate( outname, signal=lambda: self.refreshImage(panelIndex, figname) )
+            return system.integrate( outname, signal=lambda: GLib.idle_add( lambda panelIndex=panelIndex, figname=figname: self.refreshImage(panelIndex, figname) ) )
         self.threads.append( threading.Thread(target=run) )
         self.threads[-1].daemon = True
         self.threads[-1].start()
