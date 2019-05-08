@@ -21,7 +21,6 @@ import gi
 #gi.require_version('Gtk', '2.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf
 
-
 #def SL2(fp,fv):
     #return lambda p, q, dt: ( lambda dp1: (
                              #lambda dq1: ( dp1/2 + dt/2*fp( p+dp1/2, q+dq1 ), dq1 ) 
