@@ -1,6 +1,6 @@
-This a trivial version of SPheRIO with a graphical interface. The code is written in python 2.7. 
+This is a trivial version of SPheRIO (to be released as v4.0) with a graphical interface. The code is written in python 2.7. 
 
-To run the code, one need to install python 2.7, together with some libraries which can be installed by the following commands
+To run the code, one needs to install python 2.7, together with some libraries which can be installed by the following commands
 
 pip install scipy
 pip uninstall matplotlib
@@ -18,9 +18,10 @@ after this you should be able to run
 python sph.py
 and get a window to play with
 
-version at
+release version at
 https://github.com/PhMota/sph/releases/tag/1.0.2
-repository with the working version at
+repository at
 https://github.com/PhMota/sph
 
 Ph. Mota
+July 7, 2019
