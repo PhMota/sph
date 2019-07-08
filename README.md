@@ -1,4 +1,4 @@
-This is a trivial version of SPheRIO (to be released as v4.0) with a graphical interface. The code is written in python 2.7. 
+This is a trivial version of SPheRIO (to be released as v5.0) with a graphical interface. The code is written in python 2.7. 
 
 To run the code, one needs to install python 2.7, together with some libraries which can be installed by the following commands
 
