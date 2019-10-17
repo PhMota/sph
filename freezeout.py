@@ -1,5 +1,5 @@
 # freeze-out implementation in python
-# latest update 20190923 1843
+# latest update 20191015.2152
 from __future__ import print_function
 
 import numpy as np
@@ -25,13 +25,22 @@ iverbose = 4
 
 class nameConventions:
 
-    def __init__(self,  name='auau-nexus.fzo' ):
-        self.name = name
+    def __init__(self,  collision_name='auau-nexus.fzo', nMinEventIndex=1, nMaxEventIndex=None ):
+        self.name = collision_name
+        self.iEventCount = 0
+        self.nMinEventIndex=nMinEventIndex
+        if nMaxEventIndex==None:
+            self.nMaxEventIndex=100
+        else:
+            self.nMaxEventIndex=nMaxEventIndex
         self.hbarc = 1.97
         self.c = 1.0
 
     def makeName( self, i = 1 ):
-        return self.name.replace('.fzo', '-%d.fzo'%i )
+        return self.name.replace('.fzo', '-%d.data'%i )
+
+    def makeFZOFilename( self, i = 1 ):
+        return self.name.replace('.fzo', '-%d.fzo.data'%i )
 
     def outputFileName( self, label1, label2='', label3='' ):
         labelme = str(label1)
@@ -40,6 +49,49 @@ class nameConventions:
             if label3 != '':
                 labelme += '_'+str(label3)
         return 'zzout_'+str(labelme)+'.dat'
+
+    @staticmethod
+    def phif(px,py): #return a value between 0 to 2pi
+        zero = 0.0
+        two = 2.0
+        three = 3.0
+        if px == zero:
+            if py > zero:
+                phif=pi/two
+            elif py < zero:
+                phif=pi/two*three
+            elif py == zero:
+                print('fatal error in phif(), px=py=0, please check your data file')
+                #print('program halt')
+                #exit(1)
+                phif=None
+            else:
+                print('fatal error in phif(), impossible option')
+                print('progrm halt')
+                exit(1)
+        elif px < zero:
+            if py > zero:
+                phif=atan2(py,px) +pi
+            elif py < zero:
+                phif=atan2(py,px) +pi
+            elif py == zero:
+                phif= pi
+            else:
+                print('fatal error in phif(), impossible option')
+                print('progrm halt')
+                exit(1)
+        elif px > zero:
+            if py > zero:
+                phif=atan2(py,px)
+            elif py < zero:
+                phif=atan2(py,px) +two*pi
+            elif py == zero:
+                phif = 0.0
+            else:
+                print('fatal error in phif(), impossible option')
+                print('progrm halt')
+                exit(1)
+        return phif
 
 class FzoDramaFactory:
 
@@ -68,6 +120,95 @@ class FzoDramaFactory:
             print('removing lock', lock)
             os.remove( lock )
 
+    def ReadFZOsrfc( self, nameset, iEvent ):
+        if iverbose > 7: print ('Subroutine FzoDramaFactory.ReadFZOsrfc() invoked!')
+        outFZOfrc = FreeZeOutSurface(opt='FZOfile')
+        for i in range(iEvent,iEvent+1):
+            ifname = nameset.makeFZOFilename(i+1)
+            if not os.path.isfile(ifname):
+                print('...skipping file:',ifname)
+                self.fileIsMissing = True
+                return None
+            self.fileIsMissing = False
+            data = open( ifname, 'r' ).readlines()
+            if iverbose > 8: print('reading file:',ifname)
+            isFirstLine = True
+            indexp = 0
+            for line in data:
+                linesplit = " ".join(line.split()).split(' ')
+                if isFirstLine:
+                    indexp += 1
+                    if iverbose > 5: print(linesplit)
+                    try:
+                        numberOfFZOParticles = int(linesplit[0])
+                        nparb_act = int(linesplit[1])
+                    except ValueError:
+                        print("Fatal error: the particle number does not look like an integer!")
+                        exit(1)
+                    numberOfItems =  len(linesplit)
+                    if numberOfItems != 2:
+                        print('Fatal error: the number of items of FZO info description does not match the standard. program halt!')
+                        print('numberOfItems:',numberOfItems)
+                        print('troublesome content:',linesplit)
+                        exit(1)
+                    if iverbose > 7: print('FZO particle number of current data file:',numberOfFZOParticles)
+                    for iFZOParticle in range(numberOfFZOParticles):
+                        memFZOsph = FreeZeOutSPH()
+                        outFZOfrc.addFZOSPH(memFZOsph)
+                    isFirstLine = False
+                else:
+                    indexp += 1
+                    if iverbose > 5: print('line index:',indexp,'file batch index/total batches:',indexp,'/5')
+                    numberOfItems =  len(linesplit)
+                    if iverbose > 8: print('number of items in the present batch is:', numberOfItems)
+                    if indexp == 2:#the batch contains numberOfFZOParticles*nparb_act+2*nparb_act items
+                        if iverbose > 5: print ('indexp: ',indexp,' numberOfItems:',numberOfItems,' vs. expected value',numberOfFZOParticles*nparb_act+2*nparb_act)
+                    if indexp == 3:#the batch contains 6*4(-vectors)*numberOfFZOParticles items
+                        if iverbose > 5: print ('indexp: ',indexp,' numberOfItems:',numberOfItems,' vs. expected value',6*4*numberOfFZOParticles)
+                        for iFZOParticle in range(numberOfFZOParticles):
+                            outFZOfrc.FZOList[iFZOParticle].tauf       = float(linesplit[iFZOParticle*(4*6)+0])
+                            outFZOfrc.FZOList[iFZOParticle].xf         = float(linesplit[iFZOParticle*(4*6)+1])
+                            outFZOfrc.FZOList[iFZOParticle].yf         = float(linesplit[iFZOParticle*(4*6)+2])
+                            outFZOfrc.FZOList[iFZOParticle].etaf       = float(linesplit[iFZOParticle*(4*6)+3])
+                            outFZOfrc.FZOList[iFZOParticle].uTau       = float(linesplit[iFZOParticle*(4*6)+(4*2)+0])
+                            outFZOfrc.FZOList[iFZOParticle].uX         = float(linesplit[iFZOParticle*(4*6)+(4*2)+1])
+                            outFZOfrc.FZOList[iFZOParticle].uY         = float(linesplit[iFZOParticle*(4*6)+(4*2)+2])
+                            outFZOfrc.FZOList[iFZOParticle].uEta       = float(linesplit[iFZOParticle*(4*6)+(4*2)+3])
+                            outFZOfrc.FZOList[iFZOParticle].d3SigmaTau = float(linesplit[iFZOParticle*(4*6)+(4*3)+0])
+                            outFZOfrc.FZOList[iFZOParticle].d3SigmaX   = float(linesplit[iFZOParticle*(4*6)+(4*3)+1])
+                            outFZOfrc.FZOList[iFZOParticle].d3SigmaY   = float(linesplit[iFZOParticle*(4*6)+(4*3)+2])
+                            outFZOfrc.FZOList[iFZOParticle].d3SigmaEta = float(linesplit[iFZOParticle*(4*6)+(4*3)+3])
+                    if indexp == 4:#the batch contains 2*5*numberOfFZOParticles items
+                        if iverbose > 5: print ('indexp: ',indexp,' numberOfItems:',numberOfItems,' vs. expected value',2*5*numberOfFZOParticles)
+                    if indexp == 5:#the batch contains (15)*numberOfFZOParticles items
+                        if iverbose > 5: print ('indexp: ',indexp,' numberOfItems:',numberOfItems,' vs. expected value',15*numberOfFZOParticles)
+                        for iFZOParticle in range(numberOfFZOParticles):
+                            outFZOfrc.FZOList[iFZOParticle].ef         = None
+                            outFZOfrc.FZOList[iFZOParticle].pf         = None
+                            outFZOfrc.FZOList[iFZOParticle].Tf         = float(linesplit[iFZOParticle*(15)+10])
+                            outFZOfrc.FZOList[iFZOParticle].muBf       = float(linesplit[iFZOParticle*(15)+0])
+                            outFZOfrc.FZOList[iFZOParticle].muSf       = float(linesplit[iFZOParticle*(15)+1])
+        NotConsistentSPH = 0
+        for iFZOParticle in range(numberOfFZOParticles-1,-1,-1):# exception check, delete must work in reversed order
+            NotConsistentFlag = False
+            if outFZOfrc.FZOList[iFZOParticle].Tf == 0.0 :
+                NotConsistentFlag = True #remove SPH particles with vanishing freeze-out temperature
+            elif outFZOfrc.FZOList[iFZOParticle].tauf == 0.0:
+                NotConsistentFlag = True #remove SPH particles with vanishing initial time
+            else:
+                utau  = outFZOfrc.FZOList[iFZOParticle].uTau
+                ux    = outFZOfrc.FZOList[iFZOParticle].uX
+                uy    = outFZOfrc.FZOList[iFZOParticle].uY
+                ueta  = outFZOfrc.FZOList[iFZOParticle].uEta
+                uunit = utau**2-ux**2-uy**2-ueta**2/outFZOfrc.FZOList[iFZOParticle].tauf**2 #four velocity u_\mu not normalized
+                if abs(uunit-1.0) > 0.001: NotConsistentFlag = True
+            if NotConsistentFlag == True:
+                NotConsistentSPH += 1
+                outFZOfrc.deleteFZOSPHwithIndex(iFZOParticle)
+        print(NotConsistentSPH,'Non-consistent FZO SPH particles have been removed!')
+        return outFZOfrc
+
+
 class FreeZeOutSPH: #a frozen-out SPH particle which store the information of a small element of freeze-out surface
     def __init__( self, randomized=False, in_tauf=None,in_xf=None,in_yf=None,in_etaf=None,in_d3SigmaTau=None,in_d3SigmaX=None,in_d3SigmaY=None,in_d3SigmaEta=None,in_uTau=None,in_uX=None,in_uY=None,in_uEta=None,in_ef=None,in_pf=None,in_Tf=None,in_muBf=None,in_muSf=None): #tauf , xf , yf , etaf , d3SigmaTau , d3SigmaX, d3SigmaY, d3SigmaEta, uTau , uX, uY, uEta, ef , pf, Tf , muBf, components of viscosities
         saved_args = locals()
@@ -83,15 +224,12 @@ class FreeZeOutSPH: #a frozen-out SPH particle which store the information of a 
             self.uX=0.0+random.uniform(-1,1)*0.2
             self.uY=0.0+random.uniform(-1,1)*0.2
             self.uTau=sqrt(1.0+self.uX**2+self.uY**2)+random.uniform(0,1)*0.2
-            self.uEta=sqrt(self.uTau**2-self.uX**2-self.uY**2-1.0)/self.tauf
-            self.ef=1.0+random.uniform(0,1)*0.5
-            self.pf=self.ef/3.0
-            self.Tf=0.15
+            self.uEta=sqrt(self.uTau**2-self.uX**2-self.uY**2-1.0)*self.tauf
+            self.ef=None
+            self.pf=None
+            self.Tf=0.15 #freeze-out temperature scenario
             self.muBf=0.0
             self.muSf=0.0
-        elif str(saved_args).count('None') != 0 :
-            print('fatal error in FreeZeOutSPH.__init__(), program halt!')
-            exit(1)
         else:
             self.tauf = in_tauf
             self.xf = in_xf
@@ -124,7 +262,7 @@ class FreeZeOutSurface: #vessle class to store freeze-out surface elements
             for ifzsph in range(50):
                 fzsph = FreeZeOutSPH( randomized=True )
                 self.addFZOSPH(fzsph)
-            print('done! ',self.numFZOSPH,' freeze-out sph particles have been ceated!')
+            print('done! ',self.numFZOSPH,' freeze-out SPH particles have been created!')
 
     def addFZOSPH( self, anFZOSPH=None ):
         if anFZOSPH is not None:
@@ -136,6 +274,12 @@ class FreeZeOutSurface: #vessle class to store freeze-out surface elements
                 exit(1)
         else:
             print ('critical warning in FreeZeOutSurface.addFZOSPH(), no input found!')
+    def deleteFZOSPHwithIndex(self, indexSPH=None):
+        if isinstance(indexSPH,int) and indexSPH<=self.numFZOSPH:
+            self.FZOList.remove(self.FZOList[indexSPH])
+            self.numFZOSPH -= 1
+        else:
+            print ('WARNING: Subroutine FreeZeOutSurface.deleteFZOSPHwithIndex() failed and ignored!')
     def FZOSPH(self, indexSPH=None ):
         if indexSPH is not None:
             return self.FZOList[indexSPH]
@@ -200,29 +344,36 @@ class ParticleOutputList:
 
 class SpectrumFlowEvaluation:
 
-    def __init__( self, FZOsrfc='Fake', PDTable='Default', POutList='Default', nEtaBin=None, etaMax=None, etaMin=None, nYBin=None, yMax=None, yMin=None, nPtBin=None, ptMax=None, ptMin=None, nPhiBin=None, nHarmonics=None): #python 2.7
+    def __init__( self, FZOsrfc='Fake', DTDMFactory='Inactive', PDTable='Default', POutList='Default', nEtaBin=None, etaMax=None, etaMin=None, nYBin=None, yMax=None, yMin=None, nPtBin=None, ptMax=None, ptMin=None, nPhiBin=None, nHarmonics=None): #python 2.7
         print ('SpectrumFlowEvaluation Class instantiated')
         self.doneHeader = False
         self.gridsHaveBeenDefined = False
         if FZOsrfc =='Fake':
-            FZOsrfc = FreeZeOutSurface('Fake')
+            self.FZOsrfc_dummy = True
+        else:
+            self.FZOsrfc_dummy = False
+            self.DtDrmFctry = DTDMFactory
+            if not isinstance(self.DtDrmFctry, FzoDramaFactory):
+                print ('Fatal error (1) in Class SpectrumFlowEvaluation initialization, program halt!')
+                exit(1)
         if PDTable == 'Default':
-            PDTable = ParticleDataTable('Default')
+            self.PDTable = ParticleDataTable('Default')
+        else:
+            pass
         if POutList == 'Default':
-            POutList = ParticleOutputList('Default')
-        if not (isinstance(FZOsrfc, FreeZeOutSurface) and isinstance(PDTable, ParticleDataTable) and isinstance(POutList, ParticleOutputList)):
-            print ('Fatal error in SpectrumFreezeOut initialization, program halt!')
+            self.POutList = ParticleOutputList('Default')
+        else:
+            pass
+        if not (isinstance(self.PDTable, ParticleDataTable) and isinstance(self.POutList, ParticleOutputList)):
+            print ('Fatal error (2) in Class SpectrumFlowEvaluation initialization, program halt!')
             exit(1)
         if self.gridsHaveBeenDefined == False: #first time runner
             saved_args = locals()
-            self.FZOsrfc = FZOsrfc
-            self.PDTable = PDTable
-            self.PoutList = POutList
             self.nEtaBin = 120
-            self.etaMax = 7.0
+            self.etaMax = 6.0
             self.etaMin = -self.etaMax
             self.nYBin = 120
-            self.yMax = 7.0
+            self.yMax = 6.0
             self.yMin = -self.yMax
             self.ptMax = 5.0
             self.ptMin = 0.0
@@ -268,12 +419,12 @@ class SpectrumFlowEvaluation:
             self.deltaY = (self.yMax-self.yMin)/self.nYBin
             self.deltaPt = (self.ptMax-self.ptMin)/self.nPtBin
             self.deltaPhi = (self.phiMax-self.phiMin)/self.nPhiBin
-            self.D3nDyptDptDphi = zeros([self.PoutList.numPOutputList,self.nPtBin, self.nYBin, self.nPhiBin],dtype=np.float32) #np.float64 is double precision
-            self.D3nDetaptDptDphi = zeros([self.PoutList.numPOutputList,self.nPtBin, self.nYBin, self.nPhiBin],dtype=np.float32)
-            self.VnYPtEP = zeros([self.nHarmonics, self.PoutList.numPOutputList+1, self.nPtBin],dtype=np.float32)
-            self.VnYEtaEP = zeros([self.nHarmonics, self.PoutList.numPOutputList+1, self.nEtaBin],dtype=np.float32)
-            self.VnYPtCMLT = zeros([self.nHarmonics, self.PoutList.numPOutputList+1, self.nPtBin],dtype=np.float32)
-            self.VnYEtaCMLT = zeros([self.nHarmonics, self.PoutList.numPOutputList+1, self.nPtBin],dtype=np.float32)
+            self.D3nDyptDptDphi = zeros([self.POutList.numPOutputList,self.nPtBin, self.nYBin, self.nPhiBin],dtype=np.float32) #np.float64 is double precision
+            self.D3nDetaptDptDphi = zeros([self.POutList.numPOutputList,self.nPtBin, self.nYBin, self.nPhiBin],dtype=np.float32)
+            self.VnYPtEP = zeros([self.nHarmonics, self.POutList.numPOutputList+1, self.nPtBin],dtype=np.float32)
+            self.VnYEtaEP = zeros([self.nHarmonics, self.POutList.numPOutputList+1, self.nEtaBin],dtype=np.float32)
+            self.VnYPtCMLT = zeros([self.nHarmonics, self.POutList.numPOutputList+1, self.nPtBin],dtype=np.float32)
+            self.VnYEtaCMLT = zeros([self.nHarmonics, self.POutList.numPOutputList+1, self.nPtBin],dtype=np.float32)
             self.gridsHaveBeenDefined = True
             print('grids definition:')
             print('nEtaBin: ',self.nEtaBin,' etaMax: ',self.etaMax, ' etaMin: ',self.etaMin)
@@ -281,6 +432,46 @@ class SpectrumFlowEvaluation:
             print('nPtBin: ',self.nPtBin,' ptMax: ',self.ptMax,' ptMin: ',self.ptMin)
             print('nPhiBin: ',self.nPhiBin,' phiMax: ',self.phiMax,' phiMin: ',self.phiMin)
             print('nHarmonics: ',self.nHarmonics)
+
+    def EventAverage( self, nameset ):
+        print ('Subroutine SpectrumFlowEvaluation.EventAverage() invoked')
+        self.VnYPtEP /= float(nameset.iEventCount)
+        self.VnYEtaEP /= float(nameset.iEventCount)
+        self.VnYPtCMLT /= float(nameset.iEventCount)
+        self.VnYEtaCMLT /= float(nameset.iEventCount)
+        return self
+
+    def EventLoopSpectrumFlowAnalysis( self, nameset ):
+        print ('Subroutine SpectrumFlowEvaluation.SpectrumFlowOutput() invoked')
+        for iEvent in range(nameset.nMinEventIndex, nameset.nMaxEventIndex):
+            print(iEvent,'/',(nameset.nMaxEventIndex-nameset.nMinEventIndex),'possible events...')
+            if self.FZOsrfc_dummy == True:
+                self.FZOsrfc = FreeZeOutSurface('Fake')
+            else:
+                self.FZOsrfc = self.DtDrmFctry.ReadFZOsrfc( nameset, iEvent )
+                if self.FZOsrfc is None:
+                    print('Event ',iEvent,' is empty and thus skipped!')
+                    continue
+            if not isinstance(self.FZOsrfc, FreeZeOutSurface):
+                print ('Fatal error in Subroutine SpectrumFlowEvaluation.EventLoopSpectrumFlowAnalysis() initialization, program halt!')
+                exit(1)
+            print('the number of Freeze-out SPH particles is:',self.FZOsrfc.numFZOSPH)
+            nameset.iEventCount += 1
+            if nameset.iEventCount == 1:
+                print('for the 0-th particle:')
+                print('tauf,xf,yf,etaf=',self.FZOsrfc.FZOList[0].tauf,self.FZOsrfc.FZOList[0].xf,self.FZOsrfc.FZOList[0].yf,self.FZOsrfc.FZOList[0].etaf)
+                print('Tf,muBf,muSf=',self.FZOsrfc.FZOList[0].Tf,self.FZOsrfc.FZOList[0].muBf,self.FZOsrfc.FZOList[0].muSf)
+                print('for the 1-st particle:')
+                print('tauf,xf,yf,etaf=',self.FZOsrfc.FZOList[1].tauf,self.FZOsrfc.FZOList[1].xf,self.FZOsrfc.FZOList[1].yf,self.FZOsrfc.FZOList[1].etaf)
+                print('Tf,muBf,muSf=',self.FZOsrfc.FZOList[1].Tf,self.FZOsrfc.FZOList[1].muBf,self.FZOsrfc.FZOList[1].muSf)
+                print('for the last particle:')
+                print('tauf,xf,yf,etaf=',self.FZOsrfc.FZOList[-1].tauf,self.FZOsrfc.FZOList[-1].xf,self.FZOsrfc.FZOList[-1].yf,self.FZOsrfc.FZOList[-1].etaf)
+                print('Tf,muBf,muSf=',self.FZOsrfc.FZOList[-1].Tf,self.FZOsrfc.FZOList[-1].muBf,self.FZOsrfc.FZOList[-1].muSf)
+
+            self.evaluateGridD3nDyptDptDphi(nameset).evaluateOutputD3nDyptDptVnVsPt(EPCalculated=False).evaluateOutputD3nDyptDptVnVsPt(EPCalculated=True)
+        print('The total number of events included in the present analysis is: ',nameset.iEventCount)
+        self.EventAverage( nameset )
+        return self
 
     def header( self, nameset ):
         f = open( nameset.outputFileName('pt'), 'w' )
@@ -292,28 +483,30 @@ class SpectrumFlowEvaluation:
         self.doneHeader = True
 
     def SpectrumFlowWriteOutputFile( self, nameset ):
-        print ('SpectrumFlowOutput Class instantiated')
+        print ('Subroutine SpectrumFlowEvaluation.SpectrumFlowOutput() invoked')
         if not self.doneHeader:
             self.header( nameset )
         f = open( nameset.outputFileName('pt'), 'a' ) #'a' for append
         for iPtBin in range(self.nPtBin):
             pt = self.ptMin+(iPtBin+0.5)*(self.ptMax-self.ptMin)
-            f.write(str(pt)+' '+' '.join(['{:f}'.format(givenHarmonics) for givenHarmonics in self.VnYPtEP[:, self.PoutList.numPOutputList, iPtBin]])+'\n')
-            if iverbose > 8: print(str(pt)+' '+' '.join(['{:f}'.format(givenHarmonics) for givenHarmonics in self.VnYPtEP[:, self.PoutList.numPOutputList, iPtBin]])+'\n')
+            f.write(str(pt)+' '+' '.join(['{:f}'.format(givenHarmonics) for givenHarmonics in self.VnYPtEP[:, self.POutList.numPOutputList, iPtBin]])+'\n')
+            if iverbose > 8: print(str(pt)+' '+' '.join(['{:f}'.format(givenHarmonics) for givenHarmonics in self.VnYPtEP[:, self.POutList.numPOutputList, iPtBin]])+'\n')
         f.close()
         f = open( nameset.outputFileName('eta'), 'a' ) #'a' for append
         for iEtaBin in range(self.nEtaBin):
             eta = self.etaMin+(iEtaBin+0.5)*(self.etaMax-self.etaMin)
-            f.write(str(eta)+' '+' '.join(['{:f}'.format(givenHarmonics) for givenHarmonics in self.VnYEtaEP[:, self.PoutList.numPOutputList, iEtaBin]])+'\n')
-            if iverbose > 8: print(str(eta)+' '+' '.join(['{:f}'.format(givenHarmonics) for givenHarmonics in self.VnYEtaEP[:, self.PoutList.numPOutputList, iEtaBin]])+'\n')
+            f.write(str(eta)+' '+' '.join(['{:f}'.format(givenHarmonics) for givenHarmonics in self.VnYEtaEP[:, self.POutList.numPOutputList, iEtaBin]])+'\n')
+            if iverbose > 8: print(str(eta)+' '+' '.join(['{:f}'.format(givenHarmonics) for givenHarmonics in self.VnYEtaEP[:, self.POutList.numPOutputList, iEtaBin]])+'\n')
         f.close()
         print('The obtained results have been saved to the file(s).')
         return self
 
     def evaluateGridD3nDyptDptDphi( self, nameset ):
         print ('Subroutine evaluateGridD3nDyptDptDphi() invoked')
+        print(self.FZOsrfc.numFZOSPH),
         for iescolTmp in range(self.FZOsrfc.numFZOSPH):
-            for iParticleSpeciesOutput in range(self.PoutList.numPOutputList):
+            print('.'),
+            for iParticleSpeciesOutput in range(self.POutList.numPOutputList):
                 for iPtBin in range(self.nPtBin):
                     rptTmp=self.ptMin+(iPtBin+0.5)*(self.ptMax-self.ptMin)/float(self.nPtBin)
                     for iYBin in range(self.nYBin):
@@ -321,138 +514,160 @@ class SpectrumFlowEvaluation:
                         for iPhiBin in range(self.nPhiBin):
                             rphiTmp=self.phiMin+(iPhiBin+0.5)*(self.phiMax-self.phiMin)/float(self.nPhiBin)
                             tmpDis=self.fD3nDptDyDphi(nameset,rpt=rptTmp,ry=ryTmp,rphi=rphiTmp,iescol=iescolTmp,ipid=iParticleSpeciesOutput)
+#                            if tmpDis == 0.0:
+#                                print('WARNING: vanishing tmpDis observed!')
+#                                print('iPtBin=',iPtBin,' iYBin=',iYBin,' iPhiBin=',iPhiBin,' iParticleSpeciesOutput=',iParticleSpeciesOutput)
+#                                print('rpt=', rptTmp,' ry=',ryTmp,' rphi=',rphiTmp,' iescol=', iescolTmp,' ipid=',iParticleSpeciesOutput)
+#                                print('program halt!')
+#                                exit(1)
                             self.D3nDyptDptDphi[iParticleSpeciesOutput,iPtBin,iYBin,iPhiBin]+=tmpDis
+        print(' ')
         return self
 
-    def evaluateOutputD3nDyptDptVnVsPt( self ):
+    def evaluateOutputD3nDyptDptVnVsPt( self, EPCalculated=False ):
         print ('Subroutine evaluateOutputD3nDyptDptVnVsPt() invoked')
-#        psib_temp     = psib
-#        psia_temp     = psia
-#        phievent_temp = phievent
-        psib          = 0.0
-        psia          = 0.0
-        phievent      = 0.0
+# 0 - pt, 0.5 (0a5) - particle species, 1 - phi, 2 - rapidity (y)
         sum0          = 0.0
-        sum0pt        = 0.0
-        phievt        = zeros([self.nHarmonics],dtype=np.float32)
-        psisin        = zeros([self.nHarmonics],dtype=np.float32)
-        psicos        = zeros([self.nHarmonics],dtype=np.float32)
-        psisinwpt     = zeros([self.nHarmonics],dtype=np.float32)
-        psicoswpt     = zeros([self.nHarmonics],dtype=np.float32)
+        if EPCalculated==False: #event plane not calculated, so evaluate them!
+            self.phievt = zeros([self.nHarmonics],dtype=np.float32)
+            self.psib   = zeros([self.nHarmonics],dtype=np.float32)
+            self.psia   = zeros([self.nHarmonics],dtype=np.float32)
+            self.psiptb = zeros([self.nHarmonics],dtype=np.float32)
+            self.psipta = zeros([self.nHarmonics],dtype=np.float32)
+        fase    = zeros([self.nHarmonics],dtype=np.float32)
+        psisin  = zeros([self.nHarmonics],dtype=np.float32)
+        psicos  = zeros([self.nHarmonics],dtype=np.float32)
+        psibsin = zeros([self.nHarmonics],dtype=np.float32)
+        psibcos = zeros([self.nHarmonics],dtype=np.float32)
+        psiasin = zeros([self.nHarmonics],dtype=np.float32)
+        psiacos = zeros([self.nHarmonics],dtype=np.float32)
+
         for iPtBin in range(self.nPtBin):
+            rpt=self.ptMin+(iPtBin+0.5)*(self.ptMax-self.ptMin)/float(self.nPtBin)
+            if (iPtBin == 0 or iPtBin == self.nPtBin-1):
+                fator0 = 1.0
+            elif iPtBin%2 == 0:
+                fator0 = 4.0
+            elif iPtBin%2 == 1:
+                fator0 = 2.0
             sum0a5   = 0.0
-            sum0a5v1 = 0.0
-            sum0a5v2 = 0.0
-            soma0a56 = 0.0
-            soma0a57 = 0.0
             for iHarmonics in range(self.nHarmonics):
                 soma0a5cos = zeros([self.nHarmonics],dtype=np.float32)
-            for iParticleSpeciesOutput in range(self.PoutList.numPOutputList):
-                rpt=self.ptMin+(iPtBin+0.5)*(self.ptMax-self.ptMin)/float(self.nPtBin)
-                if (iPtBin == 0 or iPtBin == self.nPtBin-1):
-                    fator0 = 1.0
-                elif iPtBin%2 == 0:
-                    fator0 = 4.0
-                elif iPtBin%2 == 1:
-                    fator0 = 2.0
+            for iParticleSpeciesOutput in range(self.POutList.numPOutputList):
                 sum1  = 0.0
-                sum1pt= 0.0
-                sum1v1= 0.0
-                sum1v2= 0.0
-                soma16= 0.0
-                soma17= 0.0
                 for iHarmonics in range(self.nHarmonics):
                     soma1sin    = zeros([self.nHarmonics],dtype=np.float32)
                     soma1cos    = zeros([self.nHarmonics],dtype=np.float32)
-                    soma1sinwpt = zeros([self.nHarmonics],dtype=np.float32)
-                    soma1coswpt = zeros([self.nHarmonics],dtype=np.float32)
+                    soma1bsin   = zeros([self.nHarmonics],dtype=np.float32)
+                    soma1bcos   = zeros([self.nHarmonics],dtype=np.float32)
+                    soma1asin   = zeros([self.nHarmonics],dtype=np.float32)
+                    soma1acos   = zeros([self.nHarmonics],dtype=np.float32)
                 for iPhiBin in range(self.nPhiBin):
                     rphi=self.phiMin+(iPhiBin+0.5)*(self.phiMax-self.phiMin)/float(self.nPhiBin)
                     fator1=3.0 #periodic function
                     sum2 = 0.0
-                    sum2pt=0.0
                     for iHarmonics in range(self.nHarmonics):
                         soma2sin    = zeros([self.nHarmonics],dtype=np.float32)
                         soma2cos    = zeros([self.nHarmonics],dtype=np.float32)
-                        soma2sinwpt = zeros([self.nHarmonics],dtype=np.float32)
-                        soma2coswpt = zeros([self.nHarmonics],dtype=np.float32)
-                        for iYBin in range(self.nYBin):
-                            ry=self.yMin+(iYBin+0.5)*(self.yMax-self.yMin)/float(self.nYBin)
-                            if (ry < 0.0):
-                                fase=psib
-                            else:
-                                fase=psia
-                            if (iYBin == 1 or iYBin == self.nYBin-1):
-                                fator2 = 1.0
-                            elif iYBin%2 == 0:
-                                fator2 = 4.0
-                            elif iYBin%2 == 1:
-                                fator2 = 2.0
-                            tmp2    = self.D3nDyptDptDphi[iParticleSpeciesOutput,iPtBin,iYBin,iPhiBin]
-                            sum2   += tmp2*fator2
-                            sum2pt += tmp2*rpt*fator2
-                            for iHarmonics in range(self.nHarmonics):
-                                soma2sin[iHarmonics]+=tmp2*fator2*sin(float(iHarmonics)*(rphi-phievt[iHarmonics]))
-                                soma2cos[iHarmonics]+=tmp2*fator2*cos(float(iHarmonics)*(rphi-phievt[iHarmonics]))
-                                soma2sinwpt[iHarmonics]+=tmp2*rpt*fator2*sin(float(iHarmonics)*(rphi-phievt[iHarmonics]))
-                                soma2coswpt[iHarmonics]+=tmp2*rpt*fator2*cos(float(iHarmonics)*(rphi-phievt[iHarmonics]))
-
-                        sum1   += sum2*fator1
-                        sum1pt += sum2pt*fator1
-                        sum1v1 += sum2*fator1*cos(rphi-fase)
-                        sum1v2 += sum2*fator1*cos(2.0*(rphi-fase))
-                        soma16 += sum2*fator1*cos(2.0*(rphi-phievent))
-                        soma17 += sum2*fator1*cos(rphi-phievent)
+                        soma2bsin   = zeros([self.nHarmonics],dtype=np.float32)
+                        soma2bcos   = zeros([self.nHarmonics],dtype=np.float32)
+                        soma2asin   = zeros([self.nHarmonics],dtype=np.float32)
+                        soma2acos   = zeros([self.nHarmonics],dtype=np.float32)
+                    for iYBin in range(self.nYBin):
+                        ry=self.yMin+(iYBin+0.5)*(self.yMax-self.yMin)/float(self.nYBin)
+                        if (ry < 0.0):
+                            fase[iHarmonics]   = self.psib[iHarmonics]
+                        else:
+                            fase[iHarmonics]   = self.psia[iHarmonics]
+                        if (iYBin == 1 or iYBin == self.nYBin-1):
+                            fator2 = 1.0
+                        elif iYBin%2 == 0:
+                            fator2 = 4.0
+                        elif iYBin%2 == 1:
+                            fator2 = 2.0
+                        tmp2    = self.D3nDyptDptDphi[iParticleSpeciesOutput,iPtBin,iYBin,iPhiBin]
+#                        if tmp2 == 0.0:
+#                            print('WARNING: vanishing tmp2 observed, iParticleSpeciesOutput=',iParticleSpeciesOutput,' iPtBin=',iPtBin,' iYBin=',iYBin,' iPhiBin=',iPhiBin)
+#                            print('program halt!')
+#                            exit(1)
+                        sum2   += tmp2*fator2
                         for iHarmonics in range(self.nHarmonics):
-                            soma1sin[iHarmonics]    += soma2sin[iHarmonics]*fator1
-                            soma1cos[iHarmonics]    += soma2cos[iHarmonics]*fator1
-                            soma1sinwpt[iHarmonics] += soma2sinwpt[iHarmonics]*fator1
-                            soma1coswpt[iHarmonics] += soma2coswpt[iHarmonics]*fator1
-                    sum1   *= self.deltaY/3.0
-                    sum1   *= self.deltaPhi/3.0
-                    sum1pt *= self.deltaY/3.0
-                    sum1pt *= self.deltaPhi/3.0
-                    sum1v1 *= self.deltaY/3.0
-                    sum1v1 *= self.deltaPhi/3.0
-                    sum1v2 *= self.deltaY/3.0
-                    sum1v2 *= self.deltaPhi/3.0
-                    soma16 *= self.deltaY/3.0
-                    soma16 *= self.deltaPhi/3.0
-                    soma17 *= self.deltaY/3.0
-                    soma17 *= self.deltaPhi/3.0
+                            soma2sin[iHarmonics]+=tmp2*fator2*sin(float(iHarmonics)*(rphi-fase[iHarmonics]))
+                            soma2cos[iHarmonics]+=tmp2*fator2*cos(float(iHarmonics)*(rphi-fase[iHarmonics]))
+                            if ry > 0.0:
+                                soma2bsin[iHarmonics]+=tmp2*fator2*sin(float(iHarmonics)*(rphi-fase[iHarmonics]))
+                                soma2bcos[iHarmonics]+=tmp2*fator2*cos(float(iHarmonics)*(rphi-fase[iHarmonics]))
+                            else:
+                                soma2asin[iHarmonics]+=tmp2*fator2*sin(float(iHarmonics)*(rphi-fase[iHarmonics]))
+                                soma2acos[iHarmonics]+=tmp2*fator2*cos(float(iHarmonics)*(rphi-fase[iHarmonics]))
+                    sum1   += sum2*fator1
                     for iHarmonics in range(self.nHarmonics):
-                        soma1sin[iHarmonics] *= self.deltaY/3.0
-                        soma1sin[iHarmonics] *= self.deltaPhi/3.0
-                        soma1cos[iHarmonics] *= self.deltaY/3.0
-                        soma1cos[iHarmonics] *= self.deltaPhi/3.0
+                        soma1sin[iHarmonics]  += soma2sin[iHarmonics]*fator1
+                        soma1cos[iHarmonics]  += soma2cos[iHarmonics]*fator1
+                        soma1bsin[iHarmonics] += soma2bsin[iHarmonics]*fator1
+                        soma1bcos[iHarmonics] += soma2bcos[iHarmonics]*fator1
+                        soma1asin[iHarmonics] += soma2asin[iHarmonics]*fator1
+                        soma1acos[iHarmonics] += soma2acos[iHarmonics]*fator1
+                sum1   *= self.deltaY/3.0
+                sum1   *= self.deltaPhi/3.0
+                for iHarmonics in range(self.nHarmonics):
+                    soma1sin[iHarmonics]  *= self.deltaY/3.0
+                    soma1sin[iHarmonics]  *= self.deltaPhi/3.0
+                    soma1cos[iHarmonics]  *= self.deltaY/3.0
+                    soma1cos[iHarmonics]  *= self.deltaPhi/3.0
+                    soma1bsin[iHarmonics] *= self.deltaY/3.0
+                    soma1bsin[iHarmonics] *= self.deltaPhi/3.0
+                    soma1bcos[iHarmonics] *= self.deltaY/3.0
+                    soma1bcos[iHarmonics] *= self.deltaPhi/3.0
+                    soma1asin[iHarmonics] *= self.deltaY/3.0
+                    soma1asin[iHarmonics] *= self.deltaPhi/3.0
+                    soma1acos[iHarmonics] *= self.deltaY/3.0
+                    soma1acos[iHarmonics] *= self.deltaPhi/3.0
                 sum0a5    += sum1 #only to sum up different specials, therefore no fator0
-                sum0a5v1  += sum1v1
-                sum0a5v2  += sum1v2
-                soma0a56  += soma16
-                soma0a57  += soma17
-
-                sum0      += sum1*fator0 #this summation should take place for every species
-                sum0pt    += sum1pt*fator0
+                sum0      += sum1*fator0 #this summation in pt is taken place also for every species
                 for iHarmonics in range(self.nHarmonics):
                     soma0a5cos[iHarmonics] += soma1cos[iHarmonics]
                     psisin[iHarmonics]     += soma1sin[iHarmonics]*fator0
                     psicos[iHarmonics]     += soma1cos[iHarmonics]*fator0
-                    psisinwpt[iHarmonics]  += soma1sinwpt[iHarmonics]*fator0
-                    psicoswpt[iHarmonics]  += soma1coswpt[iHarmonics]*fator0
+                    psibsin[iHarmonics]    += soma1bsin[iHarmonics]*fator0
+                    psibcos[iHarmonics]    += soma1bcos[iHarmonics]*fator0
+                    psiasin[iHarmonics]    += soma1asin[iHarmonics]*fator0
+                    psiacos[iHarmonics]    += soma1acos[iHarmonics]*fator0
 
-                self.VnYPtEP[0,iParticleSpeciesOutput,iPtBin]       += sum1 #multiplicity
-                self.VnYPtEP[0,self.PoutList.numPOutputList,iPtBin] += sum1 #all particle species
-                self.VnYPtEP[1,iParticleSpeciesOutput,iPtBin]       += sum1v1/sum1 #v1
-                self.VnYPtEP[2,iParticleSpeciesOutput,iPtBin]       += sum1v2/sum1 #v2
+                self.VnYPtEP[0,iParticleSpeciesOutput,iPtBin] += sum1 #multiplicity for given particle species
+                for iHarmonics in range(1,self.nHarmonics):
+                    if sum1 != 0:
+                        self.VnYPtEP[iHarmonics,iParticleSpeciesOutput,iPtBin] += psicos[iHarmonics]/sum1 #vn for given particle species
+                    else:
+                        print('Fatal error: vanishing sum1 observed, iParticleSpeciesOutput=',iParticleSpeciesOutput,' iPtBin=',iPtBin)
+                        print('program halt!')
+                        exit(1)
 
-            self.VnYPtEP[1,self.PoutList.numPOutputList,iPtBin] += sum0a5v1/sum0a5 #v1, all particle species
-            self.VnYPtEP[2,self.PoutList.numPOutputList,iPtBin] += sum0a5v2/sum0a5 #v2, all particle species
+            self.VnYPtEP[0,self.POutList.numPOutputList,iPtBin] += sum0a5 #multiplicity, all particle species
+            for iHarmonics in range(1,self.nHarmonics):
+                if sum0a5 != 0:
+                    self.VnYPtEP[iHarmonics,self.POutList.numPOutputList,iPtBin] += psicos[iHarmonics]/sum0a5 #vn, all particle species
+                else:
+                    print('WARNING: vanishing sum0a5 observed, iPtBin=',iPtBin)
+                    print('program halt!')
+                    exit(1)
 
         sum0   *= self.deltaPt/3.0
-        sum0pt *= self.deltaPt/3.0
+
         for iHarmonics in range(self.nHarmonics):
-            psisin[iHarmonics] *= self.deltaPt/3.0
-            psicos[iHarmonics] *= self.deltaPt/3.0
+            psisin[iHarmonics]  *= self.deltaPt/3.0
+            psicos[iHarmonics]  *= self.deltaPt/3.0
+            psibsin[iHarmonics] *= self.deltaPt/3.0
+            psibcos[iHarmonics] *= self.deltaPt/3.0
+            psiasin[iHarmonics] *= self.deltaPt/3.0
+            psiacos[iHarmonics] *= self.deltaPt/3.0
+
+        if EPCalculated==False:
+            for iHarmonics in range(1,self.nHarmonics):#avoid dividing by zero
+                self.phievt[iHarmonics] = nameConventions.phif(psicos[iHarmonics],psisin[iHarmonics])/float(iHarmonics)
+                self.psib[iHarmonics]   = nameConventions.phif(psibcos[iHarmonics],psibsin[iHarmonics])/float(iHarmonics)
+                self.psia[iHarmonics]   = nameConventions.phif(psiacos[iHarmonics],psiasin[iHarmonics])/float(iHarmonics)
+
         return self
 
     def fD3nDptDyDphi(self,nameset,rpt=None,ry=None,rphi=None,iescol=None,ipid=None):
@@ -462,7 +677,11 @@ class SpectrumFlowEvaluation:
             exit(1)
 
         detetmin = 0.170             #the highest possible value
+        Tfcut    = 0.100             #the lowest allowed value
         Tfzo = min(detetmin,self.FZOsrfc.FZOSPH(iescol).Tf)
+        if Tfzo < Tfcut:
+            d3ndptdydphi=0.0
+            return d3ndptdydphi
         ub = self.FZOsrfc.FZOSPH(iescol).muBf
         us = self.FZOsrfc.FZOSPH(iescol).muSf
         b  = self.PDTable.EleParticle(ipid).b
@@ -470,6 +689,12 @@ class SpectrumFlowEvaluation:
         g  = self.PDTable.EleParticle(ipid).g
         ssq  = self.PDTable.EleParticle(ipid).s
         sinal = self.PDTable.EleParticle(ipid).sgl
+        #print('iescol,Tf',iescol,self.FZOsrfc.FZOSPH(iescol).Tf)
+        #print(type(iescol),type(self.FZOsrfc.FZOSPH(iescol).Tf))
+        #print('Tfzo,m,g,sinal=',Tfzo,m,g,sinal)
+        #print(type(Tfzo),type(m),type(g),type(sinal))
+        #print('b*ub+ssq*us',b,ub,ssq,us)
+        #print(type(b),type(ub),type(ssq),type(us))
         uu = b*ub+ssq*us
         mt = sqrt(rpt**2+m**2)
 
@@ -504,13 +729,14 @@ class SpectrumFlowEvaluation:
         vz     = uz/ut
 
         v2     = vx*vx+vy*vy+vz*vz
-        gamma  = 1.0/sqrt(1.0-v2)
         if (1.0-v2) < 0.0:
             print('NaN in d3n! program halt!')
             print('(1.d0-v2)=',(1.0-v2))
             print('utau,ux,uy,ueta=',utau,ux,uy,ueta)
             print('tau,x,y,eta=',tau,x,y,eta)
+            print('Tfzo=',Tfzo)
             exit(1)
+        gamma  = 1.0/sqrt(1.0-v2)
 
 # 4-vetor p^{\mu} (txyz-coord); lab frame
 #       p0=sqrt((rpt*cosh(reta))**2+m**2)
@@ -806,24 +1032,25 @@ if __name__ == '__main__':
     print(sys.argv)
     print("hello world!")
     print(sys.float_info)
-    nameset = nameConventions('auau-nexus.fzo') #the first string is the name of the zdata or zxdata file, the second number is the estimated lower number of particles, approximately no. of MC* no. of particles each MC* no. of events
+    nameset = nameConventions('auau-xell.fzo',nMaxEventIndex=4) #the first string is the name of the zdata or zxdata file, the second number is the estimated lower number of particles, approximately no. of MC* no. of particles each MC* no. of events
     datamg = FzoDramaFactory()
     print('python script for freeze-out surface calculation class test...')
     print('the name pattern of the fzo data files is:',nameset.name)
     print('a typical data file looks like:',nameset.makeName(3))
     print('the working directory is:',os.getcwd())
 
-    fzosurface = 'Fake'
+    fzosurface = 'FZOfile' #'FZOfile' or 'Fake'
     pdtable = 'Default'
     particleoutputlist = 'Default'
-    spectrumflowset = SpectrumFlowEvaluation(fzosurface, pdtable, particleoutputlist)
-    spectrumflowset.evaluateGridD3nDyptDptDphi(nameset).evaluateOutputD3nDyptDptVnVsPt().SpectrumFlowWriteOutputFile(nameset)
+    spectrumflowset = SpectrumFlowEvaluation(fzosurface, datamg, pdtable, particleoutputlist)
+    spectrumflowset.EventLoopSpectrumFlowAnalysis(nameset).SpectrumFlowWriteOutputFile(nameset)
     plotit = PlotOnScreen()
     plotit.plotOutputFile(nameset).showPlots()
 
+    del plotit
+    del spectrumflowset
     del datamg
     del nameset
-    del plotit
     print('program halt! goodbye and happy debudding!')
     exit(0)
 
