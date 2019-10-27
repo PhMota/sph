@@ -22,12 +22,13 @@ gi.require_version('Gtk', '2.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf
 
 iverbose = 4
+testmode = True
 
 class nameConventions:
 
     def __init__(self,  collision_name='auau-nexus.fzo', nMinEventIndex=1, nMaxEventIndex=None ):
         self.name = collision_name
-        self.iEventCount = 0
+        self.eventCounter = 0
         self.nMinEventIndex=nMinEventIndex
         if nMaxEventIndex==None:
             self.nMaxEventIndex=100
@@ -96,7 +97,6 @@ class nameConventions:
 class FzoDramaFactory:
 
     def __init__( self ):
-        self.eventCounter = 0
         self.fileIsMissing = True
         name = 'x'
         if self.islocked():
@@ -257,9 +257,9 @@ class FreeZeOutSurface: #vessle class to store freeze-out surface elements
         print ('FreezeOutSurface Class instantiated')
         self.FZOList = []
         self.numFZOSPH = 0
-        if opt=='Fake':
+        if testmode==True or opt=='Fake':
             print('randomly creating fake freeze-out surface...')
-            for ifzsph in range(50):
+            for ifzsph in range(5):
                 fzsph = FreeZeOutSPH( randomized=True )
                 self.addFZOSPH(fzsph)
             print('done! ',self.numFZOSPH,' freeze-out SPH particles have been created!')
@@ -344,11 +344,13 @@ class ParticleOutputList:
 
 class SpectrumFlowEvaluation:
 
-    def __init__( self, FZOsrfc='Fake', DTDMFactory='Inactive', PDTable='Default', POutList='Default', nEtaBin=None, etaMax=None, etaMin=None, nYBin=None, yMax=None, yMin=None, nPtBin=None, ptMax=None, ptMin=None, nPhiBin=None, nHarmonics=None): #python 2.7
+#    def __init__( self, FZOsrfc='Fake', DTDMFactory='Inactive', PDTable='Default', POutList='Default', nEtaBin=None, etaMax=None, etaMin=None, nYBin=None, yMax=None, yMin=None, nPtBin=None, ptMax=None, ptMin=None, nPhiBin=None, nHarmonics=None): #python 2.7
+    def __init__(self, FZOsrfc='Fake', DTDMFactory='Inactive', PDTable='Default', POutList='Default', **kwargs):
         print ('SpectrumFlowEvaluation Class instantiated')
         self.doneHeader = False
         self.gridsHaveBeenDefined = False
-        if FZOsrfc =='Fake':
+        self.eigenOutputDefined = False
+        if testmode ==True or FZOsrfc=='Fake':
             self.FZOsrfc_dummy = True
         else:
             self.FZOsrfc_dummy = False
@@ -356,11 +358,11 @@ class SpectrumFlowEvaluation:
             if not isinstance(self.DtDrmFctry, FzoDramaFactory):
                 print ('Fatal error (1) in Class SpectrumFlowEvaluation initialization, program halt!')
                 exit(1)
-        if PDTable == 'Default':
+        if testmode==True or PDTable == 'Default':
             self.PDTable = ParticleDataTable('Default')
         else:
             pass
-        if POutList == 'Default':
+        if testmode==True or POutList == 'Default':
             self.POutList = ParticleOutputList('Default')
         else:
             pass
@@ -369,80 +371,126 @@ class SpectrumFlowEvaluation:
             exit(1)
         if self.gridsHaveBeenDefined == False: #first time runner
             saved_args = locals()
-            self.nEtaBin = 120
+            self.nEtaBin = 10 #number of grids for output, must be a factor of nEtaIntBin
+            self.nEtaIntBin = 121 #integral grids must be an odd number (see https://en.wikipedia.org/wiki/Simpson%27s_rule)            self.etaMax = 6.0
+            self.nYIntBin = 121
             self.etaMax = 6.0
             self.etaMin = -self.etaMax
-            self.nYBin = 120
+            self.nYBin = 10
+            self.nYIntBin = 121
             self.yMax = 6.0
             self.yMin = -self.yMax
             self.ptMax = 5.0
             self.ptMin = 0.0
-            self.nPtBin = 12
+            self.nPtBin = 10
+            self.nPtIntBin = 121
             self.phiMax = 2.0*np.pi
             self.phiMin = 0.0
-            self.nPhiBin = 12
+            self.nPhiBin = 10
+            self.nPhiIntBin = 121
             self.nHarmonics = 4
-            if str(saved_args).count('None') != 11 :print('Spectrum grids dimension has been modified:')
-            if nEtaBin is not None:
-                self.nEtaBin = int(nEtaBin)
-                print('nEtaBin:',self.nEtaBin)
-            if etaMax is not None:
-                self.etaMax = float(etaMax)
-                print('etaMax:',self.etaMax)
-            if etaMin is not None:
-                self.etaMin = float(etaMin)
-                print('etaMin:',self.etaMin)
-            if nYBin is not None:
-                self.nYBin = int(nYBin)
-                print('nEtaBin:',self.nEtaBin)
-            if yMax is not None:
-                self.yMax = float(yMax)
-                print('etaMax:',self.etaMax)
-            if yMin is not None:
-                self.yMin = float(yMin)
-                print('etaMin:',self.etaMin)
-            if nPtBin is not None:
-                self.nPtBin = int(nPtBin)
-                print('nPtBin:',self.nPtBin)
-            if ptMax is not None:
-                self.ptMax = float(ptMax)
-                print('ptMax:',self.ptMax)
-            if ptMin is not None:
-                self.ptMin = float(ptMin)
-                print('ptMin:',self.ptMin)
-            if nPhiBin is not None:
-                self.nPhiBin = int(nPhiBin)
-                print('nPhiBin:',self.nPhiBin)
-            if nHarmonics is not None:
-                self.nHarmonics = int(nHarmonics)
-            self.deltaEta = (self.etaMax-self.etaMin)/self.nEtaBin
-            self.deltaY = (self.yMax-self.yMin)/self.nYBin
-            self.deltaPt = (self.ptMax-self.ptMin)/self.nPtBin
-            self.deltaPhi = (self.phiMax-self.phiMin)/self.nPhiBin
-            self.D3nDyptDptDphi = zeros([self.POutList.numPOutputList,self.nPtBin, self.nYBin, self.nPhiBin],dtype=np.float32) #np.float64 is double precision
-            self.D3nDetaptDptDphi = zeros([self.POutList.numPOutputList,self.nPtBin, self.nYBin, self.nPhiBin],dtype=np.float32)
+            self.nPrincipleComponent = 2
+            for key, value in kwargs.items():
+                if   key == 'nEtaBin'    :
+                    self.nEtaBin = int(value)
+                    print('nEtaBin: ',self.nEtaBin )
+                elif key == 'nEtaIntBin' :
+                    self.nEtaIntBin = int(value)
+                    print('nEtaIntBin: ',self.nEtaIntBin )
+                elif key == 'etaMax'     :
+                    self.etaMax = float(value)
+                    print('etaMax: ',self.etaMax )
+                    self.etaMin = -self.etaMax
+                    print('etaMin: ',self.etaMin )
+                elif key == 'etaMin'     :
+                    self.etaMin = float(value)
+                    print('etaMin: ',self.etaMin )
+                elif key == 'nYBin'      :
+                    self.nYBin = int(value)
+                    print('nYBin: ',self.nYBin )
+                elif key == 'nYIntBin'   :
+                    self.nYIntBin = int(value)
+                    print('nYIntBin: ',self.nYIntBin )
+                elif key == 'yMax'       :
+                    self.yMax = float(value)
+                    print('yMax: ',self.yMax )
+                elif key == 'yMin'       :
+                    self.yMin = float(value)
+                    print('yMin: ',self.yMin )
+                elif key == 'nPtBin'     :
+                    self.nPtBin = int(value)
+                    print('nPtBin: ',self.nPtBin )
+                elif key == 'nPtIntBin'  :
+                    self.nPtIntBin = int(value)
+                    print('nPtIntBin: ',self.nPtIntBin )
+                elif key == 'ptMax'      :
+                    self.ptMax = float(value)
+                    print('ptMax: ',self.ptMax )
+                elif key == 'ptMin'      :
+                    self.ptMin = float(value)
+                    print('ptMin: ',self.ptMin )
+                elif key == 'nPhiBin'    :
+                    self.nPhiBin = int(value)
+                    print('nPhiBin: ',self.nPhiBin )
+                elif key == 'nPhiIntBin' :
+                    self.nPhiIntBin = int(value)
+                    print('nPhiIntBin: ',self.nPhiIntBin )
+                elif key == 'nHarmonics' :
+                    self.nHarmonics = int(value)
+                    print('nHarmonics: ',self.nHarmonics )
+                elif key == 'nPrincipleComponent' :
+                    self.nPrincipleComponent = int(value)
+                    print('nPrincipleComponent: ',self.nPrincipleComponent )
+                else:
+                    print('Fatal error: keyword', key,' does not exist, program halt!')
+                    exit(1)
+                print ("%s == %s" %(key, value))
+            if not((self.nPtIntBin % 2)==1 and (self.nPhiIntBin % 2)==1 and (self.nYIntBin % 2)==1 and (self.nEtaIntBin % 2)==1):
+                print ('Fatal error: self.nXXIntBin must be odd for Simpson integral, program halt!')
+                exit(1)
+            if testmode == True:
+                self.nPhiBin=4
+                self.nPhiIntBin=21
+                self.nEtaBin=4
+                self.nEtaIntBin=21
+                self.nYBin=4
+                self.nYIntBin=21
+                self.nPtBin=4
+                self.nPtIntBin=21
+            self.deltaEta = (self.etaMax-self.etaMin)/self.nEtaIntBin
+            self.deltaY = (self.yMax-self.yMin)/self.nYIntBin
+            self.deltaPt = (self.ptMax-self.ptMin)/self.nPtIntBin
+            self.deltaPhi = (self.phiMax-self.phiMin)/self.nPhiIntBin
+            #spectrum and flow EP
+            self.D3nDyDptDphi = zeros([self.POutList.numPOutputList,self.nPtIntBin, self.nYIntBin, self.nPhiIntBin],dtype=np.float32) #np.float64 is double precision
+            self.D3nDetaDptDphi = zeros([self.POutList.numPOutputList,self.nPtIntBin, self.nYIntBin, self.nPhiIntBin],dtype=np.float32)
             self.VnYPtEP = zeros([self.nHarmonics, self.POutList.numPOutputList+1, self.nPtBin],dtype=np.float32)
             self.VnYEtaEP = zeros([self.nHarmonics, self.POutList.numPOutputList+1, self.nEtaBin],dtype=np.float32)
             self.VnYPtCMLT = zeros([self.nHarmonics, self.POutList.numPOutputList+1, self.nPtBin],dtype=np.float32)
             self.VnYEtaCMLT = zeros([self.nHarmonics, self.POutList.numPOutputList+1, self.nPtBin],dtype=np.float32)
+            #flow PCA
+            self.Qnp = zeros([self.nHarmonics, self.POutList.numPOutputList+1, self.nPtBin+1, self.nEtaBin+1],dtype=np.complex_)
+            self.VnPtDelta = zeros([self.nHarmonics, self.POutList.numPOutputList+1, self.nPtBin, self.nPtBin],dtype=np.complex_)
+            self.VnEtaDelta = zeros([self.nHarmonics, self.POutList.numPOutputList+1, self.nEtaBin, self.nEtaBin],dtype=np.complex_)
+
             self.gridsHaveBeenDefined = True
             print('grids definition:')
-            print('nEtaBin: ',self.nEtaBin,' etaMax: ',self.etaMax, ' etaMin: ',self.etaMin)
-            print('nYBin: ',self.nYBin,' yMax: ',self.yMax,' yMin: ',self.yMin)
-            print('nPtBin: ',self.nPtBin,' ptMax: ',self.ptMax,' ptMin: ',self.ptMin)
-            print('nPhiBin: ',self.nPhiBin,' phiMax: ',self.phiMax,' phiMin: ',self.phiMin)
+            print('nEtaBin: ',self.nEtaBin,'nEtaIntBin: ',self.nEtaIntBin,' etaMax: ',self.etaMax, ' etaMin: ',self.etaMin)
+            print('nYBin: ',self.nYBin,'nYIntBin: ',self.nYIntBin,' yMax: ',self.yMax,' yMin: ',self.yMin)
+            print('nPtBin: ',self.nPtBin,'nPtIntBin: ',self.nPtIntBin,' ptMax: ',self.ptMax,' ptMin: ',self.ptMin)
+            print('nPhiBin: ',self.nPhiBin,'nPhiIntBin: ',self.nPhiIntBin,' phiMax: ',self.phiMax,' phiMin: ',self.phiMin)
             print('nHarmonics: ',self.nHarmonics)
 
     def EventAverage( self, nameset ):
         print ('Subroutine SpectrumFlowEvaluation.EventAverage() invoked')
-        self.VnYPtEP /= float(nameset.iEventCount)
-        self.VnYEtaEP /= float(nameset.iEventCount)
-        self.VnYPtCMLT /= float(nameset.iEventCount)
-        self.VnYEtaCMLT /= float(nameset.iEventCount)
+        self.VnYPtEP /= float(nameset.eventCounter)
+        self.VnYEtaEP /= float(nameset.eventCounter)
+        self.VnYPtCMLT /= float(nameset.eventCounter)
+        self.VnYEtaCMLT /= float(nameset.eventCounter)
         return self
 
     def EventLoopSpectrumFlowAnalysis( self, nameset ):
-        print ('Subroutine SpectrumFlowEvaluation.SpectrumFlowOutput() invoked')
+        print ('Subroutine SpectrumFlowEvaluation.EventLoopSpectrumFlowAnalysis() invoked')
         for iEvent in range(nameset.nMinEventIndex, nameset.nMaxEventIndex):
             print(iEvent,'/',(nameset.nMaxEventIndex-nameset.nMinEventIndex),'possible events...')
             if self.FZOsrfc_dummy == True:
@@ -456,8 +504,8 @@ class SpectrumFlowEvaluation:
                 print ('Fatal error in Subroutine SpectrumFlowEvaluation.EventLoopSpectrumFlowAnalysis() initialization, program halt!')
                 exit(1)
             print('the number of Freeze-out SPH particles is:',self.FZOsrfc.numFZOSPH)
-            nameset.iEventCount += 1
-            if nameset.iEventCount == 1:
+            nameset.eventCounter += 1
+            if nameset.eventCounter == 1:
                 print('for the 0-th particle:')
                 print('tauf,xf,yf,etaf=',self.FZOsrfc.FZOList[0].tauf,self.FZOsrfc.FZOList[0].xf,self.FZOsrfc.FZOList[0].yf,self.FZOsrfc.FZOList[0].etaf)
                 print('Tf,muBf,muSf=',self.FZOsrfc.FZOList[0].Tf,self.FZOsrfc.FZOList[0].muBf,self.FZOsrfc.FZOList[0].muSf)
@@ -468,17 +516,30 @@ class SpectrumFlowEvaluation:
                 print('tauf,xf,yf,etaf=',self.FZOsrfc.FZOList[-1].tauf,self.FZOsrfc.FZOList[-1].xf,self.FZOsrfc.FZOList[-1].yf,self.FZOsrfc.FZOList[-1].etaf)
                 print('Tf,muBf,muSf=',self.FZOsrfc.FZOList[-1].Tf,self.FZOsrfc.FZOList[-1].muBf,self.FZOsrfc.FZOList[-1].muSf)
 
-            self.evaluateGridD3nDyptDptDphi(nameset).evaluateOutputD3nDyptDptVnVsPt(EPCalculated=False).evaluateOutputD3nDyptDptVnVsPt(EPCalculated=True)
-        print('The total number of events included in the present analysis is: ',nameset.iEventCount)
+            self.evaluateGridD3nDyDptDphi(nameset).evaluateGridD3nDetaDptDphi(nameset)
+            self.evaluateOutputD3nDyptDptVnVsPt(EPCalculated=False).evaluateOutputD3nDyptDptVnVsPt(EPCalculated=True)
+            self.buildVarianceMatrix(nameset)
+
+        print('The total number of events included in the present analysis is: ',nameset.eventCounter)
+        self.normalizeVarianceMatrix( nameset ).eigenValueSolver(nPrincipleComponent=2).pcaFlowWriteOutputFile(nameset)
         self.EventAverage( nameset )
         return self
 
     def header( self, nameset ):
-        f = open( nameset.outputFileName('pt'), 'w' )
+        f = open( nameset.outputFileName('vn-pt'), 'w' )
         f.write('pt'+' '+'vn'+'\n')
         f.close()
-        f = open( nameset.outputFileName('eta'), 'w' )
+        f = open( nameset.outputFileName('vn-eta'), 'w' )
         f.write('eta'+' '+'vn'+'\n')
+        f.close()
+        f = open( nameset.outputFileName('pca-pt'), 'w' )
+        f.write('lambdaPC '+' '.join([' '.join(['{:f}'.format(lambdaPC) for lambdaPC in givenHarmonics]) for givenHarmonics in self.eigenPtValue[:,self.POutList.numPOutputList,:]])+'\n')
+        if iverbose > 7: print('pt '+' '.join([' '.join(['n{0!s}p{1!s}'.format(givenHarmonics,pComponent) for pComponent in range(self.nPrincipleComponent)]) for givenHarmonics in range(self.nHarmonics) ])+'\n')
+        f.write('pt '+' '.join([' '.join(['n{0!s}pc{1!s}'.format(givenHarmonics,pComponent) for pComponent in range(self.nPrincipleComponent)]) for givenHarmonics in range(self.nHarmonics) ])+'\n')
+        f.close()
+        f = open( nameset.outputFileName('pca-eta'), 'w' )
+        f.write('lambdaPC '+' '.join([' '.join(['{:f}'.format(lambdaPC) for lambdaPC in givenHarmonics]) for givenHarmonics in self.eigenEtaValue[:,self.POutList.numPOutputList,:]])+'\n')
+        f.write('eta '+' '.join([' '.join(['n{0!s}pc{1!s}'.format(givenHarmonics,pComponent) for pComponent in range(self.nPrincipleComponent)]) for givenHarmonics in range(self.nHarmonics) ])+'\n')
         f.close()
         self.doneHeader = True
 
@@ -486,48 +547,239 @@ class SpectrumFlowEvaluation:
         print ('Subroutine SpectrumFlowEvaluation.SpectrumFlowOutput() invoked')
         if not self.doneHeader:
             self.header( nameset )
-        f = open( nameset.outputFileName('pt'), 'a' ) #'a' for append
+        f = open( nameset.outputFileName('vn-pt'), 'a' )
         for iPtBin in range(self.nPtBin):
             pt = self.ptMin+(iPtBin+0.5)*(self.ptMax-self.ptMin)
             f.write(str(pt)+' '+' '.join(['{:f}'.format(givenHarmonics) for givenHarmonics in self.VnYPtEP[:, self.POutList.numPOutputList, iPtBin]])+'\n')
             if iverbose > 8: print(str(pt)+' '+' '.join(['{:f}'.format(givenHarmonics) for givenHarmonics in self.VnYPtEP[:, self.POutList.numPOutputList, iPtBin]])+'\n')
         f.close()
-        f = open( nameset.outputFileName('eta'), 'a' ) #'a' for append
+        f = open( nameset.outputFileName('vn-eta'), 'a' )
         for iEtaBin in range(self.nEtaBin):
             eta = self.etaMin+(iEtaBin+0.5)*(self.etaMax-self.etaMin)
             f.write(str(eta)+' '+' '.join(['{:f}'.format(givenHarmonics) for givenHarmonics in self.VnYEtaEP[:, self.POutList.numPOutputList, iEtaBin]])+'\n')
             if iverbose > 8: print(str(eta)+' '+' '.join(['{:f}'.format(givenHarmonics) for givenHarmonics in self.VnYEtaEP[:, self.POutList.numPOutputList, iEtaBin]])+'\n')
         f.close()
-        print('The obtained results have been saved to the file(s).')
+        print('The obtained results on Vn(EP) have been saved to the file(s).')
         return self
 
-    def evaluateGridD3nDyptDptDphi( self, nameset ):
-        print ('Subroutine evaluateGridD3nDyptDptDphi() invoked')
-        print(self.FZOsrfc.numFZOSPH),
-        for iescolTmp in range(self.FZOsrfc.numFZOSPH):
-            print('.'),
+    def pcaFlowWriteOutputFile( self, nameset ):
+        print ('Subroutine SpectrumFlowEvaluation.pcaFlowWriteOutputFile() invoked')
+        if not self.doneHeader:
+            self.header( nameset )
+        f = open( nameset.outputFileName('pca-pt'), 'a' )
+        for j in range(self.nPtBin):
+            pt = self.ptMin+(j+0.5)*(self.ptMax-self.ptMin)
+            f.write(str(pt)+' '+' '.join([' '.join(['{:f}'.format(pComponent) for pComponent in givenHarmonics]) for givenHarmonics in self.eigenPtVector[:,self.POutList.numPOutputList,:,j]])+'\n') # https://stackoverflow.com/questions/17870612/printing-a-two-dimensional-array-in-python and https://pyformat.info/
+            if iverbose > 8: print(str(pt)+' '+' '.join([' '.join(['{:f}'.format(pComponent) for pComponent in givenHarmonics]) for givenHarmonics in self.eigenPtVector[:,self.POutList.numPOutputList,:,j]])+'\n')
+        f.close()
+        f = open( nameset.outputFileName('pca-eta'), 'a' )
+        for j in range(self.nEtaBin):
+            eta = self.etaMin+(j+0.5)*(self.etaMax-self.etaMin)
+            f.write(str(eta)+' '+' '.join([' '.join(['{:f}'.format(pComponent) for pComponent in givenHarmonics]) for givenHarmonics in self.eigenEtaVector[:,self.POutList.numPOutputList,:,j]])+'\n')
+        f.close()
+        print('The obtained results on Vn(PCA) have been saved to the file(s).')
+        return self
+
+    def buildVarianceMatrix( self, nameset ):
+        print ('Subroutine SpectrumFlowEvaluation.buildVarianceMatrix() invoked')
+        QnpTmpa = zeros([self.nHarmonics, self.POutList.numPOutputList+1, self.nPtBin+1, self.nEtaBin+1],dtype=np.complex_)
+        if ( ((self.nPtIntBin-1)%self.nPtBin) == 0 and ((self.nPtIntBin-1)/self.nPtBin)%2 == 0):
+            print('Fatal error in PCA analysis')
+            print('condition not satisfied: self.nPtIntBin - 1 = even number * self.nPtBin')
+            print('self.nPtIntBin= ',self.nPtIntBin,' self.nPtBin= ',self.nPtBin)
+            print('((self.nPtIntBin-1)%self.nPtBin)= ',((self.nPtIntBin-1)%self.nPtBin))
+            print('((self.nPtIntBin-1)/self.nPtBin)%2= ',((self.nPtIntBin-1)/self.nPtBin)%2)
+            print('program halt!')
+            exit(1)
+        if ( ((self.nEtaIntBin-1)%self.nEtaBin) == 0 and ((self.nEtaIntBin-1)/self.nEtaBin)%2 == 0):
+            print('Fatal error in PCA analysis')
+            print('condition not satisfied: self.nEtaIntBin - 1 = even number * self.nEtaBin')
+            print('self.nEtaIntBin= ',self.nEtaIntBin,' self.nEtaBin= ',self.nEtaBin)
+            print('((self.nEtaIntBin-1)%self.nEtaBin)= ',((self.nEtaIntBin-1)%self.nEtaBin))
+            print('((self.nEtaIntBin-1)/self.nEtaBin)%2= ',((self.nEtaIntBin-1)/self.nEtaBin)%2)
+            print('program halt!')
+            exit(1)
+        for iHarmonics in range(self.nHarmonics):
             for iParticleSpeciesOutput in range(self.POutList.numPOutputList):
                 for iPtBin in range(self.nPtBin):
-                    rptTmp=self.ptMin+(iPtBin+0.5)*(self.ptMax-self.ptMin)/float(self.nPtBin)
-                    for iYBin in range(self.nYBin):
-                        ryTmp=self.yMin+(iYBin+0.5)*(self.yMax-self.yMin)/float(self.nYBin)
-                        for iPhiBin in range(self.nPhiBin):
-                            rphiTmp=self.phiMin+(iPhiBin+0.5)*(self.phiMax-self.phiMin)/float(self.nPhiBin)
+                    iPtIntBinMin=iPtBin*(self.nPtIntBin-1)/self.nPtBin
+                    iPtIntBinMax=iPtIntBinMin+(self.nPtIntBin-1)/self.nPtBin+1
+                    if iverbose > 8: print('iPtIntBinMin,iPtIntBinMax= ',iPtIntBinMin,iPtIntBinMax)
+                    for iEtaBin in range(self.nEtaBin):
+                        iEtaIntBinMin=iEtaBin*(self.nEtaIntBin-1)/self.nEtaBin
+                        iEtaIntBinMax=iEtaIntBinMin+(self.nEtaIntBin-1)/self.nEtaBin+1
+                        if iverbose > 8: print('iEtaIntBinMin,iEtaIntBinMax= ',iEtaIntBinMin,iEtaIntBinMax,'... ',end='')
+                        sum0 = 0j
+                        for iPtIntBin in range(iPtIntBinMin,iPtIntBinMax):
+                            iPtIntBinEff=iPtIntBin-iPtIntBinMin
+                            nPtIntBinEff=iPtIntBinMax-iPtIntBinMin
+                            if (iPtIntBinEff == 0 or iPtIntBinEff == nPtIntBinEff-1):
+                                fator0 = 1.0
+                            elif iPtIntBinEff%2 == 0:
+                                fator0 = 4.0
+                            elif iPtIntBinEff%2 == 1:
+                                fator0 = 2.0
+                            sum1 = 0j
+                            for iEtaIntBin in range(iEtaIntBinMin,iEtaIntBinMax):
+                                if iverbose > 8 and iPtIntBin == iPtIntBinMin: print(iEtaIntBin,end='')
+                                iEtaIntBinEff=iEtaIntBin-iEtaIntBinMin
+                                nEtaIntBinEff=iEtaIntBinMax-iEtaIntBinMin
+                                if (iEtaIntBinEff == 0 or iEtaIntBinEff == nEtaIntBinEff-1):
+                                    fator1 = 1.0
+                                elif iEtaIntBinEff%2 == 0:
+                                    fator1 = 4.0
+                                elif iEtaIntBinEff%2 == 1:
+                                    fator1 = 2.0
+                                sum2 = 0j
+                                for iPhiIntBin in range(self.nPhiIntBin):
+                                    fator2=3.0 #periodic function
+                                    rphi=self.phiMin+(iPhiIntBin+0.5)*(self.phiMax-self.phiMin)/float(self.nPhiIntBin)
+                                    tempa = exp(1j*iHarmonics*rphi)*self.D3nDetaDptDphi[iParticleSpeciesOutput,iPtIntBin,iEtaIntBin,iPhiIntBin]
+                                    tempa *= fator2
+                                    sum2 += tempa*fator2
+                                sum1 += sum2*fator1
+                            sum0 += sum1*fator0
+                        if iverbose > 8:print('')
+                        sum0 *= (self.deltaPt/3.0)*(self.deltaEta/3.0)*(self.deltaPhi/3.0)
+                        IntervalPt=(self.ptMax-self.ptMin)/self.nPtBin
+                        IntervalEta=(self.etaMax-self.etaMin)/self.nEtaBin
+                        QnpTmpa[iHarmonics,iParticleSpeciesOutput,iPtBin,iEtaBin] = sum0/(2.0*pi*IntervalPt*IntervalEta)
+                        QnpTmpa[iHarmonics,iParticleSpeciesOutput,iPtBin,self.nPtBin] = sum0/(2.0*pi*IntervalPt)
+                        QnpTmpa[iHarmonics,iParticleSpeciesOutput,self.nEtaBin,iEtaBin] = sum0/(2.0*pi*IntervalEta)
+                        QnpTmpa[iHarmonics,self.POutList.numPOutputList,iPtBin,iEtaBin] += sum0/(2.0*pi*IntervalPt*IntervalEta)
+                        QnpTmpa[iHarmonics,self.POutList.numPOutputList,iPtBin,self.nPtBin] += sum0/(2.0*pi*IntervalPt)
+                        QnpTmpa[iHarmonics,self.POutList.numPOutputList,self.nEtaBin,iEtaBin] += sum0/(2.0*pi*IntervalEta)
+
+        QnpTmpPtDiagnal = diag( QnpTmpa[0,self.POutList.numPOutputList,:self.nPtBin,self.nEtaBin] )
+        if iverbose>8: print('QnpTmpa[0,self.POutList.numPOutputList,:self.nPtBin,self.nEtaBin]:\n',QnpTmpa[0,self.POutList.numPOutputList,:self.nPtBin,self.nEtaBin])
+        if iverbose>8: print('QnpTmpPtDiagnal:\n',QnpTmpPtDiagnal)
+        self.VnPtDelta += -1.0*QnpTmpPtDiagnal/(2.0*pi*IntervalPt) # broadcast, the word here is broadcast
+        if iverbose>8: print('self.VnPtDelta:\n',self.VnPtDelta)
+        self.VnPtDelta += QnpTmpa[:,:,:self.nPtBin,None,self.nEtaBin] * conjugate(QnpTmpa[:,:,None,:self.nPtBin,self.nEtaBin])
+        if iverbose>8: print('self.VnPtDelta:\n',self.VnPtDelta)
+
+        QnpTmpEtaDiagnal = diag( QnpTmpa[0,self.POutList.numPOutputList,self.nPtBin,:self.nEtaBin] )
+        self.VnEtaDelta += -1.0*QnpTmpEtaDiagnal/(2.0*pi*IntervalEta) # broadcast, the word here is broadcast
+        self.VnEtaDelta += QnpTmpa[:,:,self.nPtBin,:self.nEtaBin,None] * conjugate(QnpTmpa[:,:,self.nPtBin,None,:self.nEtaBin])
+        self.Qnp += QnpTmpa
+        return self
+
+    def normalizeVarianceMatrix(self, nameset):
+        if iverbose > 2: print ('Subroutine SpectrumFlowEvaluation.normalizeVarianceMatrix() invoked!')
+        print('To normalize the variance matrix based on a total of',nameset.eventCounter,'events has been scanned.')
+        self.Qnp /= nameset.eventCounter # normalization for event number
+        self.VnPtDelta /= nameset.eventCounter
+        self.VnEtaDelta /= nameset.eventCounter
+        if iverbose > 4:
+            print('deltaEta',self.deltaEta,'deltaPt',self.deltaPt)
+            for iHarmonics in range(self.nHarmonics):
+                print('Qnp[',iHarmonics,']:')
+                print(self.Qnp[Harmonics,self.POutList.numPOutputList])
+        if iverbose > 4:
+            for iHarmonics in range(self.nHarmonics):
+                print('<QnpQnp> VnPtDelta[',iHarmonics,']:')
+                print(self.VnPtDelta[Harmonics,self.POutList.numPOutputList])
+                print('<QnpQnp> VnEtaDelta[',iHarmonics,']:')
+                print(self.VnEtaDelta[Harmonics,self.POutList.numPOutputList])
+        self.VnPtDelta += -1.0*self.Qnp[:,:,:self.nPtBin,None,self.nEtaBin] * conjugate(self.Qnp[:,:,None,:self.nPtBin,self.nEtaBin])
+        self.VnEtaDelta += -1.0*self.Qnp[:,:,self.nPtBin,:self.nEtaBin,None] * conjugate(self.Qnp[:,:,self.nPtBin,None,:self.nEtaBin])
+        return self
+
+    def eigenValueSolver(self, nPrincipleComponent=3):
+        if iverbose > 2: print ('Subroutine SpectrumFlowEvaluation.eigenValueSolver() invoked!')
+        if self.eigenOutputDefined == False:
+            self.nPrincipleComponent = nPrincipleComponent
+            self.eigenPtValue = zeros([self.nHarmonics,self.POutList.numPOutputList+1,self.nPrincipleComponent],dtype=np.complex_)
+            self.eigenPtVector = zeros([self.nHarmonics,self.POutList.numPOutputList+1,self.nPrincipleComponent,self.nPtBin],dtype=np.complex_)
+            self.eigenEtaValue = zeros([self.nHarmonics,self.POutList.numPOutputList+1,self.nPrincipleComponent],dtype=np.complex_)
+            self.eigenEtaVector = zeros([self.nHarmonics,self.POutList.numPOutputList+1,self.nPrincipleComponent,self.nEtaBin],dtype=np.complex_)
+            self.eigenOutputDefined = True
+        for iHarmonics in range(self.nHarmonics):
+            eigenPtValueTemp, eigenPtVectorTemp = linalg.eig(self.VnPtDelta[iHarmonics,self.POutList.numPOutputList])
+            eigenPtPairTemp = [(eigenPtValueTemp[i], eigenPtVectorTemp[:,i]) for i in range(len(eigenPtValueTemp))]
+            eigenPtPairTemp.sort(reverse = True, key = lambda elem : abs(real(elem[0])))
+            for i in range(self.nPrincipleComponent):
+                self.eigenPtValue[iHarmonics,self.POutList.numPOutputList,i] = eigenPtPairTemp[i][0] # damn! list and array are different https://www.pythoncentral.io/the-difference-between-a-list-and-an-array/
+                for j in range(self.nPtBin):
+                    self.eigenPtVector[iHarmonics,self.POutList.numPOutputList,i,j] = eigenPtPairTemp[i][1][j]
+            for i in range(self.nPrincipleComponent):
+                for j in range(self.nPtBin):
+                    jpt = j+1
+                    self.eigenPtVector[iHarmonics,self.POutList.numPOutputList,i,j] *= sqrt(abs(self.eigenPtValue[iHarmonics,self.POutList.numPOutputList,i]))/self.Qnp[0,self.POutList.numPOutputList,jpt,self.nEtaBin]
+            eigenEtaValueTemp, eigenEtaVectorTemp = linalg.eig(self.VnEtaDelta[iHarmonics,self.POutList.numPOutputList])
+            eigenEtaPairTemp = [(eigenEtaValueTemp[i], eigenEtaVectorTemp[:,i]) for i in range(len(eigenEtaValueTemp))]
+            eigenEtaPairTemp.sort(reverse = True, key = lambda elem : abs(real(elem[0])))
+            for i in range(self.nPrincipleComponent):
+                self.eigenEtaValue[iHarmonics,self.POutList.numPOutputList,i] = eigenEtaPairTemp[i][0]
+                for j in range(self.nEtaBin):
+                    self.eigenEtaVector[iHarmonics,self.POutList.numPOutputList,i,j] = eigenEtaPairTemp[i][1][j]
+            for i in range(self.nPrincipleComponent):
+                for j in range(self.nEtaBin):
+                    jeta = j+1
+                    self.eigenEtaVector[iHarmonics,self.POutList.numPOutputList,i,j] *= sqrt(abs(self.eigenEtaValue[iHarmonics,self.POutList.numPOutputList,i]))/self.Qnp[0,self.POutList.numPOutputList,self.nPtBin,jeta]
+            if iverbose > 4:
+                print('eigenPtValue[',iHarmonics,'], eigenPtVector[',iHarmonics,']:')
+                print(self.eigenPtValue[iHarmonics,self.POutList.numPOutputList], self.eigenPtVector[iHarmonics,self.POutList.numPOutputList])
+                print('eigenPtValue[',iHarmonics,'], eigenPtVector[',iHarmonics,']:')
+                print(self.eigenEtaValue[iHarmonics,self.POutList.numPOutputList], self.eigenEtaVector[iHarmonics,self.POutList.numPOutputList])
+        return self
+
+
+
+    def evaluateGridD3nDyDptDphi( self, nameset ):
+        print ('Subroutine SpectrumFlowEvaluation.evaluateGridD3nDyDptDphi() invoked')
+        print(self.FZOsrfc.numFZOSPH,end="")
+        for iescolTmp in range(self.FZOsrfc.numFZOSPH):
+            print('.',end="")
+            for iParticleSpeciesOutput in range(self.POutList.numPOutputList):
+                for iPtIntBin in range(self.nPtIntBin):
+                    rptTmp=self.ptMin+(iPtIntBin+0.5)*(self.ptMax-self.ptMin)/float(self.nPtIntBin)
+                    for iYIntBin in range(self.nYIntBin):
+                        ryTmp=self.yMin+(iYIntBin+0.5)*(self.yMax-self.yMin)/float(self.nYIntBin)
+                        for iPhiIntBin in range(self.nPhiIntBin):
+                            rphiTmp=self.phiMin+(iPhiIntBin+0.5)*(self.phiMax-self.phiMin)/float(self.nPhiIntBin)
                             tmpDis=self.fD3nDptDyDphi(nameset,rpt=rptTmp,ry=ryTmp,rphi=rphiTmp,iescol=iescolTmp,ipid=iParticleSpeciesOutput)
-#                            if tmpDis == 0.0:
-#                                print('WARNING: vanishing tmpDis observed!')
-#                                print('iPtBin=',iPtBin,' iYBin=',iYBin,' iPhiBin=',iPhiBin,' iParticleSpeciesOutput=',iParticleSpeciesOutput)
-#                                print('rpt=', rptTmp,' ry=',ryTmp,' rphi=',rphiTmp,' iescol=', iescolTmp,' ipid=',iParticleSpeciesOutput)
-#                                print('program halt!')
-#                                exit(1)
-                            self.D3nDyptDptDphi[iParticleSpeciesOutput,iPtBin,iYBin,iPhiBin]+=tmpDis
+                            self.D3nDyDptDphi[iParticleSpeciesOutput,iPtIntBin,iYIntBin,iPhiIntBin]+=tmpDis
         print(' ')
         return self
+
+    def evaluateGridD3nDetaDptDphi( self, nameset ):
+        print ('Subroutine SpectrumFlowEvaluation.evaluateGridD3nDetaDptDphi() invoked')
+        print(self.FZOsrfc.numFZOSPH,end="")
+        for iescolTmp in range(self.FZOsrfc.numFZOSPH):
+            print('.',end="")
+            for iParticleSpeciesOutput in range(self.POutList.numPOutputList):
+                for iPtIntBin in range(self.nPtIntBin):
+                    rptTmp=self.ptMin+(iPtIntBin+0.5)*(self.ptMax-self.ptMin)/float(self.nPtIntBin)
+                    for iEtaIntBin in range(self.nEtaIntBin):
+                        retaTmp=self.etaMin+(iEtaIntBin+0.5)*(self.etaMax-self.etaMin)/float(self.nEtaIntBin)
+                        for iPhiIntBin in range(self.nPhiIntBin):
+                            rphiTmp=self.phiMin+(iPhiIntBin+0.5)*(self.phiMax-self.phiMin)/float(self.nPhiIntBin)
+                            tmpDis=self.fD3nDptDetaDphi(nameset,rpt=rptTmp,reta=retaTmp,rphi=rphiTmp,iescol=iescolTmp,ipid=iParticleSpeciesOutput)
+                            self.D3nDetaDptDphi[iParticleSpeciesOutput,iPtIntBin,iEtaIntBin,iPhiIntBin]+=tmpDis
+        print(' ')
+        return self
+
+    def getiPtIntBin(self,rpt): #the output index is from 0 to nPtBin-1, -1 is reserved for out-of-range input
+        iPtIntBin=int(float(self.nPtIntBin)*(rpt-self.ptMin)/(self.ptMax-self.ptMin))
+        if iPtIntBin < 0: #pt cannot be negative
+            print('Fatal error in getipt()')
+            print('rpt:',rpt,'ptMax:',self.ptMax,'ptMin:',self.ptMin,'nPtIntBin:',self.nPtIntBin)
+            print('program halt')
+            exit(1)
+        if iPtIntBin >= self.nPtIntBin: iPtIntBin=-1 #if out of the range then one should let it go
+        return iPtIntBin
+
+    def getiEtaIntBin(self,reta): #the output index is from 0 to nPtBin-1, -1 is reserved for out-of-range input
+        iEtaIntBin=int(float(self.nEtaIntBin)*(reta-self.etaMin)/(self.etaMax-self.etaMin))
+        if iEtaIntBin < 0: iEtaIntBin=-1
+        if iEtaIntBin >= self.nEtaIntBin: iEtaIntBin=-1 #if out of the range then one should let it go
+        return iEtaIntBin
 
     def evaluateOutputD3nDyptDptVnVsPt( self, EPCalculated=False ):
         print ('Subroutine evaluateOutputD3nDyptDptVnVsPt() invoked')
 # 0 - pt, 0.5 (0a5) - particle species, 1 - phi, 2 - rapidity (y)
-        sum0          = 0.0
+        sum0 = 0.0
         if EPCalculated==False: #event plane not calculated, so evaluate them!
             self.phievt = zeros([self.nHarmonics],dtype=np.float32)
             self.psib   = zeros([self.nHarmonics],dtype=np.float32)
@@ -544,17 +796,18 @@ class SpectrumFlowEvaluation:
 
         for iPtBin in range(self.nPtBin):
             rpt=self.ptMin+(iPtBin+0.5)*(self.ptMax-self.ptMin)/float(self.nPtBin)
+            iPtIntBin=self.getiPtIntBin(rpt)
             if (iPtBin == 0 or iPtBin == self.nPtBin-1):
                 fator0 = 1.0
             elif iPtBin%2 == 0:
                 fator0 = 4.0
             elif iPtBin%2 == 1:
                 fator0 = 2.0
-            sum0a5   = 0.0
+            sum0a5 = 0.0
             for iHarmonics in range(self.nHarmonics):
                 soma0a5cos = zeros([self.nHarmonics],dtype=np.float32)
             for iParticleSpeciesOutput in range(self.POutList.numPOutputList):
-                sum1  = 0.0
+                sum1 = 0.0
                 for iHarmonics in range(self.nHarmonics):
                     soma1sin    = zeros([self.nHarmonics],dtype=np.float32)
                     soma1cos    = zeros([self.nHarmonics],dtype=np.float32)
@@ -562,8 +815,8 @@ class SpectrumFlowEvaluation:
                     soma1bcos   = zeros([self.nHarmonics],dtype=np.float32)
                     soma1asin   = zeros([self.nHarmonics],dtype=np.float32)
                     soma1acos   = zeros([self.nHarmonics],dtype=np.float32)
-                for iPhiBin in range(self.nPhiBin):
-                    rphi=self.phiMin+(iPhiBin+0.5)*(self.phiMax-self.phiMin)/float(self.nPhiBin)
+                for iPhiIntBin in range(self.nPhiIntBin):
+                    rphi=self.phiMin+(iPhiIntBin+0.5)*(self.phiMax-self.phiMin)/float(self.nPhiIntBin)
                     fator1=3.0 #periodic function
                     sum2 = 0.0
                     for iHarmonics in range(self.nHarmonics):
@@ -573,19 +826,19 @@ class SpectrumFlowEvaluation:
                         soma2bcos   = zeros([self.nHarmonics],dtype=np.float32)
                         soma2asin   = zeros([self.nHarmonics],dtype=np.float32)
                         soma2acos   = zeros([self.nHarmonics],dtype=np.float32)
-                    for iYBin in range(self.nYBin):
-                        ry=self.yMin+(iYBin+0.5)*(self.yMax-self.yMin)/float(self.nYBin)
+                    for iYIntBin in range(self.nYIntBin):
+                        ry=self.yMin+(iYIntBin+0.5)*(self.yMax-self.yMin)/float(self.nYIntBin)
                         if (ry < 0.0):
                             fase[iHarmonics]   = self.psib[iHarmonics]
                         else:
                             fase[iHarmonics]   = self.psia[iHarmonics]
-                        if (iYBin == 1 or iYBin == self.nYBin-1):
+                        if (iYIntBin == 1 or iYIntBin == self.nYIntBin-1):
                             fator2 = 1.0
-                        elif iYBin%2 == 0:
+                        elif iYIntBin%2 == 0:
                             fator2 = 4.0
-                        elif iYBin%2 == 1:
+                        elif iYIntBin%2 == 1:
                             fator2 = 2.0
-                        tmp2    = self.D3nDyptDptDphi[iParticleSpeciesOutput,iPtBin,iYBin,iPhiBin]
+                        tmp2    = self.D3nDyDptDphi[iParticleSpeciesOutput,iPtIntBin,iYIntBin,iPhiIntBin]
 #                        if tmp2 == 0.0:
 #                            print('WARNING: vanishing tmp2 observed, iParticleSpeciesOutput=',iParticleSpeciesOutput,' iPtBin=',iPtBin,' iYBin=',iYBin,' iPhiBin=',iPhiBin)
 #                            print('program halt!')
@@ -673,7 +926,7 @@ class SpectrumFlowEvaluation:
     def fD3nDptDyDphi(self,nameset,rpt=None,ry=None,rphi=None,iescol=None,ipid=None):
         saved_args = locals()
         if str(saved_args).count('None') != 0 :
-            print('fD3nDyDpTDeta() input fatal error, program halt!')
+            print('fD3nDptDyDphi() input fatal error, program halt!')
             exit(1)
 
         detetmin = 0.170             #the highest possible value
@@ -767,14 +1020,109 @@ class SpectrumFlowEvaluation:
         d3ndptdydphi=taa.real
         return d3ndptdydphi
 
+    def fD3nDptDetaDphi(self,nameset,rpt=None,reta=None,rphi=None,iescol=None,ipid=None):
+        saved_args = locals()
+        if str(saved_args).count('None') != 0 :
+            print('fD3nDptDetaDphi() input fatal error, program halt!')
+            exit(1)
+
+        detetmin = 0.170             #the highest possible value
+        Tfcut    = 0.100             #the lowest allowed value
+        Tfzo = min(detetmin,self.FZOsrfc.FZOSPH(iescol).Tf)
+        if Tfzo < Tfcut:
+            d3ndptdetadphi=0.0
+            return d3ndptdetadphi
+        ub = self.FZOsrfc.FZOSPH(iescol).muBf
+        us = self.FZOsrfc.FZOSPH(iescol).muSf
+        b  = self.PDTable.EleParticle(ipid).b
+        m  = self.PDTable.EleParticle(ipid).m
+        g  = self.PDTable.EleParticle(ipid).g
+        ssq  = self.PDTable.EleParticle(ipid).s
+        sinal = self.PDTable.EleParticle(ipid).sgl
+        #print('iescol,Tf',iescol,self.FZOsrfc.FZOSPH(iescol).Tf)
+        #print(type(iescol),type(self.FZOsrfc.FZOSPH(iescol).Tf))
+        #print('Tfzo,m,g,sinal=',Tfzo,m,g,sinal)
+        #print(type(Tfzo),type(m),type(g),type(sinal))
+        #print('b*ub+ssq*us',b,ub,ssq,us)
+        #print(type(b),type(ub),type(ssq),type(us))
+        uu = b*ub+ssq*us
+        mt = sqrt(rpt**2+m**2)
+
+# 4-vetor s_{\mu} ({\tau}xy{\eta}-coord)
+        stau   = self.FZOsrfc.FZOSPH(iescol).d3SigmaTau
+        sx     = self.FZOsrfc.FZOSPH(iescol).d3SigmaX
+        sy     = self.FZOsrfc.FZOSPH(iescol).d3SigmaY
+        seta   = self.FZOsrfc.FZOSPH(iescol).d3SigmaEta
+# 4-vetor u_{\mu} ({\tau}xy{\eta}-coord)
+        utau   = self.FZOsrfc.FZOSPH(iescol).uTau
+        ux     = self.FZOsrfc.FZOSPH(iescol).uX
+        uy     = self.FZOsrfc.FZOSPH(iescol).uY
+        ueta   = self.FZOsrfc.FZOSPH(iescol).uEta
+
+        tau    = self.FZOsrfc.FZOSPH(iescol).tauf
+        x      = self.FZOsrfc.FZOSPH(iescol).xf
+        y      = self.FZOsrfc.FZOSPH(iescol).yf
+        eta    = self.FZOsrfc.FZOSPH(iescol).etaf
+# 4-vetor st_{\mu} (txyz-coord)
+        st     =  cosh(eta)*stau-1.0/tau*sinh(eta)*seta
+        sx     =  sx
+        sy     =  sy
+        sz     = -sinh(eta)*stau+1.0/tau*cosh(eta)*seta
+# 4-vetor u^{\mu} (txyz-coord)
+        ut     =  cosh(eta)*utau-1.0/tau*sinh(eta)*ueta
+        ux     = -ux
+        uy     = -uy
+        uz     =  sinh(eta)*utau-1.0/tau*cosh(eta)*ueta
+
+        vx     = ux/ut
+        vy     = uy/ut
+        vz     = uz/ut
+
+        v2     = vx*vx+vy*vy+vz*vz
+        if (1.0-v2) < 0.0:
+            print('NaN in d3n! program halt!')
+            print('(1.d0-v2)=',(1.0-v2))
+            print('utau,ux,uy,ueta=',utau,ux,uy,ueta)
+            print('tau,x,y,eta=',tau,x,y,eta)
+            print('Tfzo=',Tfzo)
+            exit(1)
+        gamma  = 1.0/sqrt(1.0-v2)
+
+# 4-vetor p^{\mu} (txyz-coord); lab frame
+        p0=sqrt((rpt*cosh(reta))**2+m**2)
+#        p0=mt*cosh(ry)
+        px=rpt*cos(rphi)
+        py=rpt*sin(rphi)
+        pz=rpt*sinh(reta)
+#        pz=mt*sinh(ry)
+
+        pu=gamma*(p0-px*vx-py*vy-pz*vz)
+
+        fex   = exp((-pu+uu)/Tfzo)
+        distr = fex/(1.0+sinal*fex)
+        if (((-pu+uu)/Tfzo)>(888.0)): #python sys.float_info, max_exp=1024
+            distr=1.0
+        elif (((-pu+uu)/Tfzo)<(-888.0)):
+            distr=0.0
+
+        taa=0.5 * (sign(st*p0+sx*px+sy*py+sz*pz) + 1.0)
+        taa=taa * (st*p0+sx*px+sy*py+sz*pz)
+#        taa=taa*(rpt**2*cosh(reta))
+#        taa=taa/sqrt(rpt**2*cosh(reta)**2+m**2)    #see SPheRIO remarks and key notes on hydro
+        taa=taa*rpt
+        taa=taa*g/(2.0*pi)**3*distr
+        taa=taa/(nameset.hbarc**3)
+        if taa.imag != 0.0:
+            print('critial warning from fD3nDptDyDphi(), result is not real!')
+        d3ndptdetadphi=taa.real
+        return d3ndptdetadphi
+
     def evaluateOutputD3nDetaDpTDeta():
         print ('Subroutine evaluateOutputDn3DetapTdpT() invoked')
-        pass
         return self
 
     def evaluateOutputDnDeta():
         print ('Subroutine evaluateOutputDnDeta() invoked')
-        pass
         return self
 
 class ParticleDecay:
@@ -789,51 +1137,82 @@ class PlotOnScreen:
     def __init__( self ):
         print ('PlotOnScreen Class instantiated')
 
-    def readOutputFile( self, nameset ):
-        pt = []
-        dnptdpt = []
-        v1pt = []
-        v2pt = []
-        eta = []
-        dndeta = []
-        v1eta = []
-        v2eta = []
-
-        data = open( nameset.outputFileName('pt'), 'r' ).readlines()
+    def readOutputFile( self, nameset, iHarmonics=2, nPrincipleComponent=None, iPrincipleComponent=0 ):
+        if nPrincipleComponent == None:
+            print('fatal error in variable nPrincipleComponent input, program halt!')
+            exit(1)
+        ptep = []
+        vneppt = []
+        etaep = []
+        vnepeta = []
+        data = open( nameset.outputFileName('vn-pt'), 'r' ).readlines()
         for line in data:
             linesplit = line.replace('  ', ' ').strip(' \n').split(' ') # reorganize the obtained line into strings separated by single blank ' '
             if linesplit[0] == 'pt':
                 lambdaPt= 1
                 continue
             else:
-                pt += [ float(linesplit[0]) ]
-                dnptdpt += [ float(linesplit[1]) ]
-                v1pt += [ float(linesplit[2]) ]
-                v2pt += [ float(linesplit[3]) ]
-        data = open( nameset.outputFileName('eta'), 'r' ).readlines()
+                ptep += [ float(linesplit[0]) ]
+                vneppt += [ float(linesplit[iHarmonics+1]) ]
+        data = open( nameset.outputFileName('vn-eta'), 'r' ).readlines()
         for line in data:
             linesplit = line.replace('  ', ' ').strip(' \n').split(' ')
             if linesplit[0] == 'eta':
                 lambdaEta= 2
                 continue
             else:
-                eta += [ float(linesplit[0]) ]
-                dndeta += [ float(linesplit[1]) ]
-                v1eta += [ float(linesplit[2]) ]
-                v2eta += [ float(linesplit[3]) ]
-        pt = array(pt)
-        dnptdpt = array(dnptdpt)
-        v1pt = array(v1pt)
-        v2pt = array(v2pt)
-        eta = array(eta)
-        dndeta = array(dndeta)
-        v1eta = array(v1eta)
-        v2eta = array(v2eta)
-        if iverbose > 8: print('pt, dnptdpt, v1pt, v2pt\n',pt, dnptdpt, v1pt, v2pt)
-        return pt, dnptdpt, pt, v2pt, eta, dndeta, eta, v2eta
+                etaep += [ float(linesplit[0]) ]
+                vnepeta += [ float(linesplit[iHarmonics+1]) ]
+        ptep = array(ptep)
+        vneppt = array(vneppt)
+        etaep = array(etaep)
+        vnepeta = array(vnepeta)
+        if iverbose > 8: print('ptep, vneppt, etaep, vnepeta\n',ptep, vneppt, etaep, vnepeta)
 
-    def plotOutputFile( self, nameset  ):
-        for plotType in ["pt-spectrum","eta-spectrum"]:
+        ptpca = []
+        rept = []
+        impt = []
+        etapca = []
+        reeta = []
+        imeta = []
+        iPrincipleComponent = 0
+        data = open( nameset.outputFileName('pca-pt'), 'r' ).readlines()
+        for line in data:
+            linesplit = line.replace('  ', ' ').strip(' \n').split(' ') # reorganize the obtained line into strings separated by single blank ' '
+            if linesplit[0] == 'pt':
+                continue
+            elif linesplit[0] == 'lambdaPC':
+                lambdaPt= complex(linesplit[nPrincipleComponent*iHarmonics+iPrincipleComponent+1])
+                continue
+            ptpca += [ float(linesplit[0]) ]
+            rept += [ real(complex(linesplit[nPrincipleComponent*iHarmonics+iPrincipleComponent+1])) ]
+            impt += [ imag(complex(linesplit[nPrincipleComponent*iHarmonics+iPrincipleComponent+1])) ]
+        data = open( nameset.outputFileName('pca-eta'), 'r' ).readlines()
+        for line in data:
+            linesplit = line.replace('  ', ' ').strip(' \n').split(' ')
+            if linesplit[0] == 'eta':
+                continue
+            elif linesplit[0] == 'lambdaPC':
+                lambdaEta= complex(linesplit[nPrincipleComponent*iHarmonics+iPrincipleComponent+1])
+                continue
+            etapca += [ float(linesplit[0]) ]
+            reeta += [ real(complex(linesplit[nPrincipleComponent*iHarmonics+iPrincipleComponent+1])) ]
+            imeta += [ imag(complex(linesplit[nPrincipleComponent*iHarmonics+iPrincipleComponent+1])) ]
+        ptpca = array(ptpca)
+        rept = array(rept)
+        impt = array(impt)
+        etapca = array(etapca)
+        reeta = array(reeta)
+        imeta = array(imeta)
+        if iverbose > 8: print('ptpca, rept, impt, etapca, reeta, imeta\n',ptpca, rept, impt, etapca, reeta, imeta)
+
+        return ptep, vneppt, ptpca, rept, etaep, vnepeta, etapca, reeta
+
+    def plotOutputFile( self, nameset, nHarmonics=None, nPrincipleComponent=None, iPrincipleComponent=0 ):
+        if nHarmonics==None or nPrincipleComponent==None:
+            print('fatal error in variable nHarmonics or nPrincipleComponent, program halt!')
+            exit(1)
+        for iHarmonics in range(nHarmonics):
             plt.rcParams['font.size'] = 12.
             plt.rcParams['font.family'] = "serif"
             plt.rcParams["xtick.labelsize"] = 'xx-small'
@@ -855,17 +1234,17 @@ class PlotOnScreen:
             subFig3.grid(True)
             subFig4.grid(True)
 
-            x1, y1, x2, y2, x3, y3, x4, y4 = self.readOutputFile( nameset )
-            labelMe = 'v'
-            indexMe = 2
+            x1, y1, x2, y2, x3, y3, x4, y4 = self.readOutputFile( nameset, iHarmonics, nPrincipleComponent )
+            labelMe = 'n'
+            indexMe = iHarmonics
 
-            subFig1.plot(x1[:], y1[:], '-b', lw=.5, label=r'$n$={:f}'.format(indexMe) )
-            subFig2.plot(x2[:], y2[:], '-b', lw=.5, label=' ' )
-            subFig3.plot(x3[:], y3[:], '-r', lw=.5,  label=r'$n$={:f}'.format(indexMe) )
-            subFig4.plot(x4[:], y4[:], '-r', lw=.5,  label=' ' )
+            subFig1.plot(x1[:], y1[:], '-b', lw=.5, label='EP')
+            subFig2.plot(x2[:], y2[:], '-b', lw=.5, label='PCA' )
+            subFig3.plot(x3[:], y3[:], '-r', lw=.5, label='EP' )
+            subFig4.plot(x4[:], y4[:], '-r', lw=.5, label='PCA' )
 
-            subFig1.set_ylabel(r'$v_n$', fontsize=16)
-            subFig2.set_ylabel(r'$v_n$', fontsize=16)
+            subFig1.set_ylabel(r'$v_{:}$'.format(indexMe), fontsize=16)
+            subFig2.set_ylabel(r'$v_{:}$'.format(indexMe), fontsize=16)
             subFig2.set_xlabel(r'$p_T$', fontsize=16)
             subFig4.set_xlabel(r'$\eta$', fontsize=16)
 
@@ -987,11 +1366,11 @@ class drawFlowPlotApp(Gtk.Window):
             secondLine.pack_start( label[key], False, False, 1)
             secondLine.pack_start( self.paramsEntry[-1][key], True, True, 1)
         if len( self.paramsEntry ) == 1:
-            self.paramsEntry[-1]['type'].set_text( 'v' )
+            self.paramsEntry[-1]['type'].set_text( 'n' )
             self.paramsEntry[-1]['index'].set_text( '2' )
         elif len( self.paramsEntry ) == 2:
-            self.paramsEntry[-1]['type'].set_text( 'v' )
-            self.paramsEntry[-1]['index'].set_text( '2' )
+            self.paramsEntry[-1]['type'].set_text( 'n' )
+            self.paramsEntry[-1]['index'].set_text( '0' )
         else:
             self.paramsEntry[-1]['type'].set_text( self.paramsEntry[-2]['type'].get_text() )
             self.paramsEntry[-1]['index'].set_text( self.paramsEntry[-2]['index'].get_text() )
@@ -1042,10 +1421,10 @@ if __name__ == '__main__':
     fzosurface = 'FZOfile' #'FZOfile' or 'Fake'
     pdtable = 'Default'
     particleoutputlist = 'Default'
-    spectrumflowset = SpectrumFlowEvaluation(fzosurface, datamg, pdtable, particleoutputlist)
+    spectrumflowset = SpectrumFlowEvaluation(fzosurface, datamg, pdtable, particleoutputlist,nEtaBin=11,nEtaIntBin=121)
     spectrumflowset.EventLoopSpectrumFlowAnalysis(nameset).SpectrumFlowWriteOutputFile(nameset)
     plotit = PlotOnScreen()
-    plotit.plotOutputFile(nameset).showPlots()
+    plotit.plotOutputFile(nameset, spectrumflowset.nHarmonics, spectrumflowset.nPrincipleComponent).showPlots()
 
     del plotit
     del spectrumflowset
