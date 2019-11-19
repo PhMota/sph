@@ -1,0 +1,204 @@
+import numpy as np
+
+def cspline(h,dim):#return the kernel function and its derivatives in a tuple, these functions takes an array (q) as input, the derivatives function which generates them takes one parameter (h, dim). for difference between array, list, and tuple see https://www.freelancinggig.com/blog/2018/05/17/python-list-vs-array-vs-tuple-understanding-the-differences/
+    K = (2./3, 10*np.pi/7, 1./np.pi)[dim-1]/h**dim #() defines an array of dim elements and [] picks out the relevant one
+    return (
+        np.vectorize( lambda q: K* ( 0 if q > 2 else ( .25*(2-q)**3 if q > 1 else 1 - 1.5*q**2+.75*q**3 ) ) ), #vectorize so that the function can take vectors as input, see the return of the function derivatives for how these functions are evokedXXX
+        np.vectorize( lambda q: K* ( 0 if q > 2 else ( -3*.25*(2-q)**2 if q > 1 else - 3*q+ 3*.75*q**2 ) ) ),
+        np.vectorize( lambda q: K* ( 0 if q > 2 else ( 6*.25*(2-q) if q > 1 else -3 + 6*.75*q ) ) )
+        )
+
+def cspline_opt(h,dim):#return the kernel function and its derivatives in a tuple
+    K = (2./3, 10*np.pi/7, 1./np.pi)[dim-1]/h**dim
+    def d0( q ):#function
+        res = np.zeros_like(q) #return an array of the size of q which is filled with zeros
+        less_than_1 = q<1 #return an array with the size of q with [q<1] components filled with 1
+        between_1_and_2 = np.all( [q>=1,q<2], axis=0 ) #return an array with the size of q with components satisfying [q>=1 && q<2] filled with 1, the dimension of the input array argument is (the size of q) x 2, then it is contracted regarding the two conditions. here, the use of axis please refer to this link https://stackoverflow.com/questions/43010072/numpy-all-axis-parameter-misbehavior, the result are obtained by ADN operations collapsing onto the designated axis (array component)
+        res[less_than_1] = 1 - 1.5*q[less_than_1]**2+.75*q[less_than_1]**3
+        res[between_1_and_2] = .25*(2-q[between_1_and_2])**3
+        return K*res
+    def d1( q ):#first derivative
+        res = np.zeros_like(q)
+        less_than_1 = q<1
+        between_1_and_2 = np.all( [q>=1,q<2], axis=0 )
+        res[less_than_1] = -3*q[less_than_1]+ 3*.75*q[less_than_1]**2
+        res[between_1_and_2] = -3*.25*(2-q[between_1_and_2])**2
+        return K*res
+    def d2( q ):#second derivative
+        res = np.zeros_like(q)
+        less_than_1 = q<1
+        between_1_and_2 = np.all( [q>=1,q<2], axis=0 )
+        res[less_than_1] = -3 + 6*.75*q[less_than_1]
+        res[between_1_and_2] = 6*.25*(2-q[between_1_and_2])
+        return K*res
+    return (d0,d1,d2)
+
+def cspline_opth(dim):
+    K = (2./3, 10*np.pi/7, 1./np.pi)[dim-1]
+    def d0( d, h ):
+        q = d/h
+        res = np.zeros_like(q)
+        less_than_1 = q<1
+        between_1_and_2 = np.all( [q>=1,q<2], axis=0 )
+        res[less_than_1] = 1 - 1.5*q[less_than_1]**2+.75*q[less_than_1]**3
+        res[between_1_and_2] = .25*(2-q[between_1_and_2])**3
+        return K*res/h**dim
+    def d1( d, h ):
+        q = d/h
+        res = np.zeros_like(q)
+        less_than_1 = q<1
+        between_1_and_2 = np.all( [q>=1,q<2], axis=0 )
+        res[less_than_1] = -3*q[less_than_1]+ 3*.75*q[less_than_1]**2
+        res[between_1_and_2] = -3*.25*(2-q[between_1_and_2])**2
+        return K*res/h**dim
+    def d2( d, h ):
+        q = d/h
+        res = np.zeros_like(q)
+        less_than_1 = q<1
+        between_1_and_2 = np.all( [q>=1,q<2], axis=0 )
+        res[less_than_1] = -3 + 6*.75*q[less_than_1]
+        res[between_1_and_2] = 6*.25*(2-q[between_1_and_2])
+        return K*res/h**dim
+    def d3( d, h ):
+        q = d/h
+        res = np.zeros_like(q)
+        less_than_1 = q<1
+        between_1_and_2 = np.all( [q>=1,q<2], axis=0 )
+        res[less_than_1] = 6*.75
+        res[between_1_and_2] = -6*.25
+        return K*res/h**dim
+    def dint( d, h ):
+        q = d/h
+        res = np.zeros_like(q)
+        less_than_2 = q<2
+        res[less_than_2] = 1
+        return res
+    return (d0,d1,d2,d3)
+
+def qspline_opth(dim):
+    K = (1./120., 7/(478*np.pi), 3/(359*np.pi))[dim-1]
+    def d0( d, h ):
+        q = d/h
+        res = np.zeros_like(q)
+        less_than_1 = q<1
+        between_1_and_2 = np.all( [q>=1,q<2], axis=0 )
+        between_2_and_3 = np.all( [q>=2,q<3], axis=0 )
+        res[less_than_1] = (3 - q[less_than_1])**5 - 6*(2 - q[less_than_1])**5 + 15*(1 - q[less_than_1])**5
+        res[between_1_and_2] = (3 - q[between_1_and_2])**5 - 6*(2 - q[between_1_and_2])**5
+        res[between_2_and_3] = (3 - q[between_2_and_3])**5
+        return K*res/h**dim
+    def d1( d, h ):
+        q = d/h
+        res = np.zeros_like(q)
+        less_than_1 = q<1
+        between_1_and_2 = np.all( [q>=1,q<2], axis=0 )
+        between_2_and_3 = np.all( [q>=2,q<3], axis=0 )
+        res[less_than_1] = -5*( (3 - q[less_than_1])**4 - 6*(2 - q[less_than_1])**4 + 15*(1 - q[less_than_1])**4 )
+        res[between_1_and_2] = -5*( (3 - q[between_1_and_2])**4 - 6*(2 - q[between_1_and_2])**4 )
+        res[between_2_and_3] = -5*(3 - q[between_2_and_3])**4
+        return K*res/h**dim
+    def d2( d, h ):
+        q = d/h
+        res = np.zeros_like(q)
+        less_than_1 = q<1
+        between_1_and_2 = np.all( [q>=1,q<2], axis=0 )
+        between_2_and_3 = np.all( [q>=2,q<3], axis=0 )
+        res[less_than_1] = 4*5*( (3 - q[less_than_1])**3 - 6*(2 - q[less_than_1])**3 + 15*(1 - q[less_than_1])**3 )
+        res[between_1_and_2] = 4*5*( (3 - q[between_1_and_2])**3 - 6*(2 - q[between_1_and_2])**3 )
+        res[between_2_and_3] = 4*5*(3 - q[between_2_and_3])**3
+        return K*res/h**dim
+    def d3( d, h ):
+        q = d/h
+        res = np.zeros_like(q)
+        less_than_1 = q<1
+        between_1_and_2 = np.all( [q>=1,q<2], axis=0 )
+        between_2_and_3 = np.all( [q>=2,q<3], axis=0 )
+        res[less_than_1] = -3*4*5*( (3 - q[less_than_1])**2 - 6*(2 - q[less_than_1])**2 + 15*(1 - q[less_than_1])**2 )
+        res[between_1_and_2] = -3*4*5*( (3 - q[between_1_and_2])**2 - 6*(2 - q[between_1_and_2])**2 )
+        res[between_2_and_3] = -3*4*5*(3 - q[between_2_and_3])**2
+        return K*res/h**dim
+    def dint( d, h ):
+        q = d/h
+        res = np.zeros_like(q)
+        less_than_2 = q<2
+        res[less_than_2] = 1
+        return res
+    return (d0,d1,d2,d3)
+
+def exp_opth(dim):
+    #K = (2./3, 10*np.pi/7, 1./np.pi)[dim-1]
+    K = 1./(2*np.pi)
+    def d0( d, h ):
+        q = d/h
+        res = np.zeros_like(q)
+        less_than_2 = q<2
+        res[less_than_2] = np.exp(-q[less_than_2]**2)
+        return K*res/h**dim
+    return (d0,0,0,0)
+
+def liq(h,dim):
+    A = -1.458
+    B = 3.790
+    C = -2.624
+    D = -0.2915
+    E = 0.5831
+    F = 0.6500
+    W = lambda q: 0 if q > 2 else ( A*(q/2)**4 + B*(q/2)**3 + C*(q/2)**2 + D*(q/2) + E if q > .6 else F-q/2 )
+    Wp = lambda q: 0 if q > 2 else ( 2*A*(q/2)**3 + 3*B/2*(q/2)**2 + C*(q/2) + D/2 if q > .6 else -.5 )
+    Wpp = lambda q: 0 if q > 2 else ( 3*A*(q/2)**2 + 3*B/2*(q/2) + C/2 if q > .6 else 0 )
+    #N = 2*scipy.integrate.quad( lambda q: W(q), 0, 3 )[0]
+    N = 1
+    return (
+        np.vectorize( lambda q: W(q)/N/h**dim ),
+        np.vectorize( lambda q: Wp(q)/N/h**dim ),
+        np.vectorize( lambda q: Wpp(q)/N/h**dim )
+        )
+
+def liq_opth(dim):
+    A = -1.458
+    B = 3.790
+    C = -2.624
+    D = -0.2915
+    E = 0.5831
+    F = 0.6500
+    #W = lambda q: 0 if q > 2 else ( A*(q/2)**4 + B*(q/2)**3 + C*(q/2)**2 + D*(q/2) + E if q > .6 else F-q/2 )
+    #Wp = lambda q: 0 if q > 2 else ( 2*A*(q/2)**3 + 3*B/2*(q/2)**2 + C*(q/2) + D/2 if q > .6 else -.5 )
+    #Wpp = lambda q: 0 if q > 2 else ( 3*A*(q/2)**2 + 3*B/2*(q/2) + C/2 if q > .6 else 0 )
+    #N = 2*scipy.integrate.quad( lambda q: W(q), 0, 3 )[0]
+    N = 1
+    def _0( d, h ):
+        q = d/h
+        res = np.zeros_like(q)
+        less_than_06 = q<.6
+        between_06_and_2 = np.all( [q>=.6,q<2], axis=0 )
+        res[less_than_06] = F-q[less_than_06]/2
+        res[between_06_and_2] = A*(q[between_06_and_2]/2)**4 + B*(q[between_06_and_2]/2)**3 + C*(q[between_06_and_2]/2)**2 + D*(q[between_06_and_2]/2) + E
+        return res/N/h**dim
+    def _1( d, h ):
+        q = d/h
+        res = np.zeros_like(q)
+        less_than_06 = q<.6
+        between_06_and_2 = np.all( [q>=.6,q<2], axis=0 )
+        res[less_than_06] = -1./2
+        res[between_06_and_2] = 2*A*(q[between_06_and_2]/2)**3 + 3*B/2*(q[between_06_and_2]/2)**2 + C*(q[between_06_and_2]/2) + D/2
+        return res/N/h**dim
+    return (
+        _0,
+        _1,
+        #np.vectorize( lambda q: Wpp(q)/N/h**dim )
+        )
+
+def derivatives(method, D=1):#again, it returns the function and its derivative as a tuple, these functions takes three (including array) variables as input (x,r,h), the derivatives function which generates them takes two parameters (method, D).
+    if method == 'cspline':
+        method = cspline_opth(D) #here cspline_opth is evoked and it return a tuple of function which takes two parameters, an array (q) and a number (h)
+    if method == 'qspline':
+        method = qspline_opth(D)
+    if method == 'liq':
+        method = liq_opth(D)
+
+    return [lambda x, r, h: method[0]( np.abs(x-r), h ),#[] is for the ith component of the tuple, and () is to receive the arguments of the function generated by cspline_opth
+        lambda x, r, h: method[1]( np.abs(x-r), h )*np.sign(x-r)/h,
+        lambda x, r, h: method[2]( np.abs(x-r), h )*np.sign(x-r)**2/h**2,
+        lambda x, r, h: method[3]( np.abs(x-r), h )*np.sign(x-r)**3/h**3, #not complete
+        ]
+

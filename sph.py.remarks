@@ -1,0 +1,1050 @@
+# coding: utf-8
+from __future__ import print_function #https://stackoverflow.com/questions/7075082/what-is-future-in-python-used-for-and-how-when-to-use-it-and-how-it-works
+
+import numpy as np
+from numpy import *
+import scipy.integrate
+from math import sqrt, factorial
+import matplotlib as mpl
+mpl.use('Agg')
+import matplotlib.pyplot as plt
+import time
+import os, sys
+import traceback
+import glob
+
+import summation
+import kernel
+import threading
+
+import gi
+gi.require_version('Gtk', '2.0')
+from gi.repository import Gtk, Gdk, GdkPixbuf
+
+
+#def SL2(fp,fv):
+    #return lambda p, q, dt: ( lambda dp1: (
+                             #lambda dq1: ( dp1/2 + dt/2*fp( p+dp1/2, q+dq1 ), dq1 )
+                             #) ( dt * fv( p+dp1/2, q ) ) #dq1
+                             #) ( dt * fp(p,q) ) #dp1
+
+#def SEuler(fp,fv):
+    #return lambda p, q, dt: ( lambda dp1: (
+                             #lambda dq1: ( dp1, dq1 )
+                             #) ( dt * fv( p+dp1, q ) ) #dq1
+                             #) ( dt * fp(p,q) ) #dp1
+
+class TimeIntegrators:
+    @staticmethod #https://stackoverflow.com/questions/136097/what-is-the-difference-between-staticmethod-and-classmethod
+    def euler(f):
+        return lambda t, y, dt: y + dt * f(t,y) #return a lambda function which receives (t, y, dt) and evaluates (y')
+
+    @staticmethod
+    def midpoint(f):
+        return lambda t, y, dt: y + (lambda dy1: dt * f( t + dt/2, y + dy1/2 ) )( dt * f( t, y ) )
+
+    @staticmethod
+    def RK4(f):#receives a function (f) as input, and then returns a function named integrator which receives (t, y, dt) and evaluates (t', y')
+        def integrator( t, y, dt ): #the integrator here receives (t, q, dt) returns evolved (t', q')
+            dy1 = dt * f( t, y )
+            dy2 = dt * f( t + dt/2., y + dy1/2. )
+            dy3 = dt * f( t + dt/2., y + dy2/2. )
+            dy4 = dt * f( t + dt, y + dy3)
+            return t + dt, y + (dy1 + 2.*dy2 + 2.*dy3 + dy4)/6.
+        return integrator
+
+    class Sympletic:
+        @staticmethod
+        def Euler( Q, P ):
+            def integrator( t, q, p, dt ): #the sympletic integrator receives (t, q, p, dt) returns evolved (t', q', p'), it is different from the "simple" integrator defined above
+                dp = dt * P( t, q, p )
+                dq = dt * Q( t, q, p + dp )
+                return t + dt, q + dq, p + dp
+            return integrator
+
+        @staticmethod
+        def Euler2( fp, fv ):
+            def integrator( p, q, dt ):
+                p_1 = p + dt * fp( p, q )
+                q_1 = q + dt * fv( p_1, q )
+                return p_1, q_1
+            return integrator
+
+        @staticmethod
+        def LeapFrog( fp, fv ):
+            def integrator( p, q, dt ):
+                dp = dt/2 * fp(p,q)
+                dq = dt * fv( p + dp, q )
+                dp = dt/2 * fp( p + dp, q + dq )
+                return dp, dq
+            return integrator
+            #return lambda p, q, dt: ( lambda p1: (
+                             #lambda q2: ( p1 + dt/2*fp(p1,q2) - p, q2 - q )
+                             #) ( q + dt * fv(p1,q) ) #q2
+                             #) ( p + dt/2 * fp(p,q) ) #p1
+        @staticmethod
+        def LeapFrog2( fp, fv ):
+            def integrator( p, q, dt ):
+                p_1 = p + dt/2 * fp(p,q)
+                q_2 = q + dt * fv( p_1, q )
+                p_2 = p_1 + dt/2 * fp( p_1, q_2 )
+                return p_2, q_2
+            return integrator
+
+        @staticmethod
+        def RungeKutta4( dot_q, dot_p ):
+            def integrator( t, q, p, dt ):
+                P1 = dot_p( t, q, p )
+                Q1 = dot_q( t, q, p )
+
+                P2 = dot_p( t + dt/2., q + dt/2.*Q1, p + dt/2.*P1 )
+                Q2 = dot_q( t + dt/2., q + dt/2.*Q1, p + dt/2.*P1 )
+
+                P3 = dot_p( t + dt/2., q + dt/2.*Q2, p + dt/2.*P2 )
+                Q3 = dot_q( t + dt/2., q + dt/2.*Q2, p + dt/2.*P2 )
+
+                P4 = dot_p( t + dt, q + dt*Q3, p + dt*P3 )
+                Q4 = dot_q( t + dt, q + dt*Q3, p + dt*P3 )
+
+                dp = (P1 + 2*P2 + 2*P3 + P4)*dt/6.
+                dq = (Q1 + 2*Q2 + 2*Q3 + Q4)*dt/6.
+
+                return t + dt, q + dq, p + dp
+            return integrator
+
+        @staticmethod
+        def RungeKutta4a( Q, P ):
+            def integrator( t, q, p, dt ):
+                P1 = P( t, q, p )
+                Q1 = Q( t, q, p ) + dt/2.*P1
+
+                P2 = P( t + dt/2., q + dt/2.*Q1, p + dt/2.*P1 )
+                Q2 = Q( t + dt/2., q + dt/2.*Q1, p + dt/2.*P1 ) + dt/4.*P1
+
+                P3 = P( t + dt/2., q + dt/2.*Q2, p + dt/2.*P2 )
+                Q3 = Q( t + dt/2., q + dt/2.*Q2, p + dt/2.*P2 ) + dt/4.*P2
+
+                P4 = P( t + dt, q + dt*Q3, p + dt*P3 )
+                Q4 = Q( t + dt, q + dt*Q3, p + dt*P3 ) + dt/2.*P3
+
+                dp = (P1 + 2*P2 + 2*P3 + P4)*dt/6.
+                dq = (Q1 + 2*Q2 + 2*Q3 + Q4)*dt/6.
+
+                return t + dt, q + dq, p + dp+p
+            return integrator
+
+        @staticmethod
+        def RungeKutta4Single( fv ):
+            def integrator( q, dt ):
+                dq_1 = dt * fv( q )
+                dq_2 = dt * fv( q + dq_1/2 )
+                dq_3 = dt * fv( q + dq_2/2 )
+                dq_4 = dt * fv( q + dq_3 )
+                q_1 = q + (dq_1 + 2.*dq_2 + 2.*dq_3 + dq_4)/6.
+                return q_1
+            return integrator
+
+        @staticmethod
+        def Yoshida4( fp, fv ):
+            def integrator( p, q, dt ):
+                d = [1.351207191959657, -1.702414383919315]
+                p_1, q_1 = TimeIntegrators.Sympletic.LeapFrog2( fp, fv )( p, q, dt*d[0] )
+                p_2, q_2 = TimeIntegrators.Sympletic.LeapFrog2( fp, fv )( p_1, q_1, dt*d[1] )
+                p_3, q_3 = TimeIntegrators.Sympletic.LeapFrog2( fp, fv )( p_2, q_2, dt*d[0] )
+                return p_3, q_3
+            return integrator
+
+        @staticmethod
+        def Yoshida8( fp, fv ):
+            def integrator( p, q, dt ):
+                d = [0.104242620869991e1, 0.182020630970714e1, 0.157739928123617e0, 0.244002732616735e1, -0.716989419708120e-2, -0.244699182370524e1, -0.161582374150097e1, -0.17808286265894516e1]
+                for i in range(6):
+                    p, q = TimeIntegrators.Sympletic.LeapFrog2( fp, fv )( p, q, dt*d[i] )
+                p, q = TimeIntegrators.Sympletic.LeapFrog2( fp, fv )( p, q, dt*d[7] )
+                for i in range(6):
+                    p, q = TimeIntegrators.Sympletic.LeapFrog2( fp, fv )( p, q, dt*d[6-i] )
+                return p, q
+            return integrator
+
+_i=s_[:,None] #it put _i and _j in different dimensions, the definition is used below in many places, https://stackoverflow.com/questions/32682754/np-delete-and-np-s-whats-so-special-about-np-s
+_j=s_[None,:] #for the use of underscore in python, see https://hackernoon.com/understanding-the-underscore-of-python-309d1a029edc
+
+class AnalyticalSolution:
+    @staticmethod #read more about class method, instance method, and static method here https://medium.com/quick-code/understanding-self-in-python-a3704319e5f0
+    def sum_converge_array( f, n, eps=1e-40 ):
+        F = f(n)
+        while 1:
+            n += 1
+            fn = f(n)
+            F += fn
+            if all( abs(fn) <= abs(eps*F) ):
+                return F
+
+    def __init__(self, visc, u_0 = 1, L = 1 ): #input parameters are stored as member variables and used to evaluate the analytic solution
+        self.visc = visc
+        self.L = L
+        self.u_0 = u_0
+        self.k = pi / self.L
+        self.K = 4 * self.k * self.visc
+        self.I0 = scipy.special.i0( u_0*L/(2*pi*visc) )
+
+    def Iv(self,n): return scipy.special.iv( n, self.u_0*self.L/(2*pi*self.visc) ) #modified Bessel function of the first kind of real order, used to construct the analytic solution
+
+    def t_term(self, n, t ): return exp( -n**2 * self.k**2 * self.visc*t )
+
+    def x_N(self, n, x, diff = 0 ): return imag( exp( 1.j * n*self.k*x ) * (1.j * n*self.k)**diff ) #1.j is literally 1j, the "i" for complex number z == z.real + z.imag*1j
+
+    def x_D(self, n, x, diff = 0 ): return real( exp( 1.j * n*self.k*x ) * (1.j * n*self.k)**diff )
+
+    def N(self, x, t, diff_x = 0 ):
+        return AnalyticalSolution.sum_converge_array(
+                lambda n, x=x, t=t, diff_x=diff_x: n * self.Iv(n) * self.t_term( n, t ) * self.x_N( n, x, diff_x ),
+                n=1
+            )
+
+    def D(self, x, t, diff_x = 0 ): #diff_x = 0 (function) n (n-th order derivative)
+        return (self.I0 if diff_x == 0 else 0) +\
+            2*AnalyticalSolution.sum_converge_array(
+                lambda n, x=x, t=t, diff_x=diff_x: self.Iv(n) * self.t_term( n, t ) * self.x_D( n, x, diff_x ),
+                n=1
+            )
+
+    def u(self, t, x ):
+        return self.K * self.N(x,t)/self.D(x,t)
+
+    def du_dx(self, t, x ):
+        '''
+        d(N/D) = dN/D - N/D**2*dD
+               = (dN*D - N*dD)/D**2
+        '''
+        return self.K * (
+            self.N(x,t,1)*self.D(x,t)
+            - self.N(x,t)*self.D(x,t,1)
+            )/self.D(x,t)**2
+
+    def d2u_dx2(self, x, t ):
+        '''
+        d2(N/D) = d(dN*D - N*dD)/D**2 + 2(dN*D - N*dD)/D**3*dD
+                = (d2N*D + dN*dD - dN*dD - N*d2D)/D**2 + 2(dN*D - N*dD)/D**3*dD
+                = (d2N*D**2 + dN*dD*D - dN*dD*D - N*d2D*D + 2dN*D*dD - 2N*dD*dD)/D**3
+                = (d2N*D**2 + dN*dD*D - dN*dD*D - N*d2D*D + 2dN*D*dD - 2N*dD*dD)/D**3
+        '''
+        return self.K* (
+            self.N(x,t,2) * self.D(x,t)**2
+            - 2*self.D(x,t) * self.N(x,t,1)*self.D(x,t,1)
+            - self.N(x,t) * self.D(x,t) * self.D(x,t,2)
+            + 2*self.N(x,t)*self.D(x,t,1)**2
+            )/self.D(x,t)**3
+
+    def d3u_dx3(self, x, t ):
+        return self.K* (
+            self.N(x,t,3) * self.D(x,t)**3
+            - 3*self.D(x,t)**2*self.N(x,t,2)*self.D(x,t,1)
+            - 3*self.D(x,t)**2*self.N(x,t,1)*self.D(x,t,2)
+            + 6*self.D(x,t)*self.N(x,t,1)*self.D(x,t,1)**2
+            - self.N(x,t)*self.D(x,t,3)*self.D(x,t)**2
+            - 6*self.N(x,t)*self.D(x,t,1)**3
+            + 6*self.N(x,t)*self.D(x,t)*self.D(x,t,1)*self.D(x,t,2)
+            )/self.D(x,t)**4
+
+
+def diff_array( a, x ):
+    return (a[2:] - a[:-2])/(x[2:] - x[:-2])
+
+def calculate_h( h, q, N, status, dim = 1, eps = 1e-1 ):#reevaluate h using local density, which is an array corresponds that of q.
+    hnew = array(h) #copy h to hnew
+    NN = ones_like(q)*N #return an array of Ns with the same shape and type as q, N is number of particles per h0, namely, the ideal neighbor number
+    while 1:
+        prevh = array(hnew)
+        hnew = h0*NN/rho(q,hnew,0,q)**(1./dim) # the definition of rho has been abandoned, but the expression reads (h0*N)^dim/rho = h/^dim -> V
+        dist_h = abs( q[_i] - q[_j] )/hnew[_i] # here one makes use of the broadcasting rule and end up with an NxN array storing all possible position differences, here abs() just evaluates element-wise, see https://docs.scipy.org/doc/numpy-1.13.0/user/basics.broadcasting.html
+        dist_h[ dist_h <= 2 ] = 1
+        dist_h[ dist_h > 2 ] = 0
+        count = sum( dist_h, axis = 0 ) #count is of the same shape of q, which counts the number of neighboring particles for all SPH particles
+        #print( 'count', count[ status_border == 0 ], len(count), all( count[ status_border == 0 ] == N ) )
+        if all( count[ status == 0 ] == N ): break # if all the neighbor number of all SPH particles, which are not on the boundary, equals to N
+        maxdiff = max( abs(prevh-hnew) )
+        print( 'diff', max( abs(prevh-hnew) ) ) #or the change to stabilize
+        prevh = array(hnew)
+        if maxdiff/h0 < 1e-2: break #if h is not changing too much, then ok!
+        break
+    return hnew
+
+def calculate_h_dist( h, q, p, dt, N, dim = 1, eps = 1e-1 ):#reevaluate h using for the next time step, just do it once
+    fraction = .1
+    q1 = q+p*dt
+    dist_h = abs( q1[_i]-q1[_j] )/h[_i]
+    dist_h[dist_h < .1*fraction] = max(dist_h)
+    #dist_h_min = min( dist_h, axis = 1 )
+    dist_h_min = min( dist_h, axis = 0 )
+
+    hnew = array(h)
+    #hnew[dist_h_min < fraction] *= dist_h_min[dist_h_min < fraction]/fraction
+    hnew *= dist_h_min/fraction
+    return hnew
+
+import timeit
+
+colors = ['r','g','b','m','y','c']
+
+def generate_border( t, r, s, ds, h, method_smooth = 'self', method_sum = 'sum' ): #find the SPH particles that are on the border
+
+    dists = None
+    if method_smooth == 'self':
+        H = h[_j]
+    elif method_smooth == 'other':
+        H = h[_i]
+    elif method_smooth == 'mean':
+        H = .5*(h[_i]+h[_j])
+
+    dists = (r[_i] - r[_j])/H
+    dists[abs(dists)>3] = 0 #array takes logic array of the same shape as the mark, see https://docs.scipy.org/doc/numpy/reference/maskedarray.generic.html#constructing-masked-arrays
+    #inds = border_indices(r, h, interpolator )
+    numer = summation.sum_2( dists, axis=0, method = method_sum )
+    denom = summation.sum_2( abs(dists), axis=0, method = method_sum )
+    #print(numer)
+    #print(denom)
+    uni = numer/denom
+    inds = argwhere( abs(uni) == 1 ) #find the indices of SPH particles that satisfies the condition: all the other particles are either on the right or on the left, https://docs.scipy.org/doc/numpy/reference/generated/numpy.argwhere.html
+    print('border inds',inds.flatten(), uni[inds].flatten() )
+    newt = []
+    newr = []
+    news = []
+    newds = []
+    newh = []
+
+    for ind in inds:
+        neighbors = argwhere( abs(r-r[ind])<3*h[ind] )
+        dist = r[neighbors] - r[ind]
+        mask = all( [abs(dist)>0, dist*uni[ind] > 0 ], axis=0 )#SPH particles not including itself, and then a check for right border everyone should be on your left (double checking)
+        newr = append( newr, r[ind] - dist[mask] )
+
+        delta = s[neighbors] - s[ind]
+        news = append( news, s[ind] - delta[mask] )
+
+        delta = ds[neighbors] - ds[ind]
+        newds = append( news, ds[ind] + delta[mask] )
+
+        deltah = h[neighbors] - h[ind]
+        newh = append( newh, h[ind] + deltah[mask] )
+
+        deltat = t[neighbors] - t[ind]
+        newt = append( newt, t[ind] + deltat[mask] )
+
+    #print('newr',newr)
+    return newt, newr, news, newds, newh, -1*ones_like(newr)
+
+
+def merge( r, p, h, status, fuse=False ): #merge SPH particles whose h is too small
+    fraction = .2
+    inds = argwhere( h[status==0] < fraction*h0 ) #find the indices of those non-border particles whose h is too small
+    print( 'h<h0', inds.flatten() , end='; ')
+    return r, p, h, status
+
+    for ind in inds:
+        print( 'h/h0', h[ind]/h0, 'id', ind )
+
+    neighbors = argwhere( abs(r-r[ind]) < .5*fraction*h0 )
+    print( 'neighbors', neighbors.flatten() )
+
+    if h[ind] > fraction*h0:
+        return r, p, h, status
+
+    if fuse:
+        print( 'fuse!!!' )
+        r[neighbors] = mean( r[neighbors] )
+        p[neighbors] = mean( p[neighbors] )
+        h[neighbors] = mean( h[neighbors] )
+        return r, p, h, status
+
+    print( 'before', r[ind], p[ind], h[ind] )
+    r[ind] = mean( r[neighbors] )
+    #p[ind] = mean( p[neighbors] )
+    #h[ind] = mean( h[neighbors] )
+    print( 'after', r[ind], p[ind], h[ind] )
+
+    print( 'merge!!!' )
+    print( 'before', r.shape )
+    r = delete(r, remove) #https://docs.scipy.org/doc/numpy/reference/generated/numpy.delete.html
+    p = delete(p, remove)
+    h = delete(h, remove)
+
+    status = delete(status, remove) #where remove is defined? XXX
+    print( 'after', r.shape )
+
+    return r, p, h, status
+
+class BaseSPH:
+    def __init__( self, h0, W, density, phi='ref' ):
+        self.W = kernel.derivatives( W ) # XXX? (W)
+        self.h0 = h0
+        self.density = density #XXX why density is not used later on?
+        if phi == 'ref':
+            self.phi = self.ref
+        if phi == 'id':
+            self.phi = self.id
+
+    def interpolation( self, f, r, D=0, function=False ): #the summation is done for all neighbors of any SPH particle _i, for the product of kernel and quantity f
+        W = self.W[D] # here D is the order of derivatives, NOT dimension!, we are using default dimension of 1
+        def inner( x ):
+            if type(f) is float: #same number for everyone
+                val = W( x[_j], r[_i], self.h0 )*f
+            elif len(f.shape) == 1:
+                val = W( x[_j], r[_i], self.h0 )*f[_i] # most common scenario, f is an array, so f[_i]
+            else:
+                val = W( x[_j], r[_i], self.h0 )*f # 2 dimensional array already defined otherwise by the user
+
+            valp = zeros_like(val)
+            valp[val > 0] = val[val>0]
+            valn = zeros_like(val)
+            valn[val < 0] = val[val<0]
+            return sum( valp, axis=0 ) + sum( valn, axis=0 )
+        if function: # return a general purpose function inner() or an array of interpolated value evaluated for all SPH particles
+            return inner
+        else:
+            return inner(r)
+
+    def id( self, x, hx = None ):
+        return x
+
+    def ref( self, x, r=None, D=0, function=False ):
+        return self.interpolation( 1., x, D=D, function=function )
+
+    def delta( self, r, D=0, power=1, function=False ): # to evaluate <\Delta r>(r) XXX cannot find \nu
+        def inner( x ):
+            if power == 0: diff = 1
+            else: diff = r[_i] - x[_j]
+            if power < 0: diff[ diff == 0 ] = self.h0 # when power <0, set to h0 for the diagonal terms. XXX? what is power<0 XXX
+            return self.interpolation( diff**power/self.phi(r)[_i], x, D=D, function=function )
+        if function:
+            return inner
+        else:
+            return inner(r)
+
+    def deltaAbs( self, x, D=0, power=1 ):
+        if power == 0: diff = 1
+        else: diff = x[_i] - x[_j]
+        return self.interpolation( abs(diff)**power/self.phi(x)[_i], x, D=D )
+
+    def fdelta( self, f, x, D=0, power=1 ):
+        if f is None: f = ones_like(x)
+        if power == 0: diff = 1
+        else: diff = x[_i] - x[_j]
+        if power < 0: diff[ diff == 0] = self.h0
+        return self.interpolation( diff**power * f[_i]/self.phi(x)[_i], x, D=D )
+
+    def sph( self, f, x, D=0, function=False ):
+        return self.interpolation( f/self.phi(x), x, D=D, function=function )
+
+    def uni( self, x ):
+        return self.delta( x )/self.deltaAbs( x )
+
+class StandardSPH:
+    def __init__( self, sph ): #sph is supposed to be an instance of the BaseSPH class
+        self.sph = sph
+
+    def diff( self, f, r ): # for standard SPH, derivative are achieved by the spatial derivative of kernel function
+        return self.sph.sph( f, r, D=1 ) # XXX? sph.sph() the sph method of an instance of BaseSPH class, should standardSPH be defined as a derived class of BaseSPH to avoid this?
+
+    def diff2( self, f, r ):
+        return self.sph.sph( f, r, D=2 )
+
+    def interp( self, f, r ):
+        return self.sph.sph( f, r, D=0 )
+
+class KernelGradientFree:
+    def __init__( self, order = 4, basepower = 0, sph = None ):
+        self.order = order
+        self.basepower = basepower
+        self.sph = sph
+        self.r = 0
+        self.f = 0
+        self.invM = None
+        self.V = None
+        self.F = None
+
+    def compute_invM( self, r ):
+        m = array( [[ self.sph.delta( r, power=i+j+self.basepower, D=0 ) for j in range(self.order)] for i in range(self.order) ] ).T # delta gives you a NxN array while we add two more dimension related to i and j, ".T" applies transpose, https://stackoverflow.com/questions/5741372/syntax-in-python-t
+        self.det = abs( linalg.det( m ) ) # https://docs.scipy.org/doc/numpy-1.15.1/reference/routines.linalg.html
+        self.invM = zeros_like( m )
+        self.invM[self.det > 0] = linalg.inv( m[self.det > 0] ) #XXX why the mask can be like this?
+        return self.invM
+
+    def compute_V( self, f, r ):
+        self.V = array([ self.sph.fdelta( f, r, power=i+self.basepower, D=0 ) for i in range(self.order) ] ).T
+        return self.V
+
+    def compute_F( self, f, r ):
+        self.F = einsum( '...ij,...i->...j', self.compute_invM( r ), self.compute_V( f, r ) ).T #XXX why three dots, https://stackoverflow.com/questions/26089893/understanding-numpys-einsum
+        return self.F
+
+    def compute_F2( self, f, r ):
+        m = array( [[ self.sph.delta( r, power=i+j+self.basepower, D=0 ) for j in range(self.order)] for i in range(self.order) ] ).T
+        self.det = abs( linalg.det( m ) )
+        self.invM = zeros_like( m )
+        self.invM[self.det > 0] = linalg.inv( m[self.det > 0] )
+
+        self.V = array([ self.sph.fdelta( f, r, power=i+self.basepower, D=0 ) for i in range(self.order) ]).T
+        self.F = zeros_like( self.V )
+        self.F[ self.det>0 ] = einsum( '...ij,...i->...j', self.invM[ self.det>0 ], self.V[ self.det>0 ] )
+
+        if sum( (self.det==0).astype(int) ) > 0:
+            print( 'det==0', sum( (self.det==0).astype(int) ) )
+            zeros = zeros_like( f[ self.det==0 ] )
+            self.F[ self.det==0 ] = array([ f[ self.det==0 ] if i==0 else zeros for i in range(self.order) ]).T
+
+        return self.F.T
+
+    def diff( self, f, r ):
+        return self.compute_F2( f, r )[1]
+
+    def interp( self, f, r ):
+        return self.compute_F2( f, r )[0]
+
+class Output:
+    def __init__( self, name ):
+        self.name = name
+        self.doneHeader = False
+        if self.islocked():
+            print('file is locked')
+            exit(0)
+        self.lock()
+
+    def makeName( self, s ):
+        return self.name.replace('.dat', '.%s.dat'%s ) #https://stackoverflow.com/questions/17924631/name-replace-xx-with-y-if-x-exists
+
+    def figname( self ):
+        return self.name.replace('.dat', '.png' )
+
+    def __del__( self ):
+        Output.cleanLocks( os.path.dirname(self.name) )
+
+    def lock(self):
+        open( self.name+'.lock', 'w')
+
+    def islocked(self):
+        return os.path.exists( self.name+'.lock' )
+
+    @staticmethod
+    def cleanLocks( dir ):#remove all lock files
+        print( glob.glob( dir+'/*.lock' ) ) #look for all the files ended with '.lock' in the given directory 'dir', also see https://docs.python.org/3/library/glob.html
+        for lock in glob.glob( dir+'/*.lock' ):
+            print('removing lock', lock)
+            os.remove( lock )
+
+    def header( self, N ): #the header of the output are indications of positions and velocities at different instants, i.e., "# t r[0] r[1] ...." and "# t u[0] u[1] ...."
+        for s in [ 'r', 'u' ]:
+            f = open( self.makeName(s), 'w' )
+            f.write("# t " + ' '.join( map(lambda x: '%s[%d]'%(s,x), range(N) ) ) + '\n' ) # for the use of 'join' and 'map', see https://www.programiz.com/python-programming/methods/string/join and http://book.pythontips.com/en/latest/map_filter.html
+            f.close()
+        self.doneHeader = True
+
+    def write( self, t, r, u ): #append the data (t as number, r and u as arrays) to the file
+        if not self.doneHeader:
+            self.header( len(r) )
+        for s, arr in [ ('r', r), ('u', u) ]:
+            f = open( self.makeName(s), 'a' )
+            f.write("%f "%t + ' '.join( map(lambda x: '%f'%x, arr ) ) + '\n' ) #t printed as a float, then follow an array of r (and u) printed also as float
+            f.close()
+
+    def read( self ): #read evolution information from the file
+        t = []
+        r = []
+        u = []
+        for s in [ 'r', 'u' ]:
+            data = open( self.makeName(s), 'r' ).readlines()
+            for line in data:
+                if line[0] == '#': continue
+                linesplit = line.replace('  ', ' ').strip(' \n').split(' ') # reorganize the obtained line into strings separated by single blank ' '
+                if s == 'r':
+                    r += [ map( float, linesplit[1:] ) ] # add the position information to the r[] array, starting from the second element of the line, here r+=['value'] append 'value' to r[]
+                    t += [ float(linesplit[0]) ] # add the first element of the time to the t[] array
+                elif s == 'u':
+                    u += [ map( float, linesplit[1:] ) ]
+        t = array(t)
+        r = array(r)
+        u = array(u)
+        return t, r, u
+
+        #for s, arr in [ ('r', r), ('u', p) ]:
+            #fname = 'plots/sph_%svst_%s'%(s, self.name)
+            #f = open( fname, 'a' )
+            #f.write("%f "%t + ' '.join( map(lambda x: '%f'%x, arr ) ) + '\n' )
+            #f.close()
+
+class Burger:
+    def __init__(self, viscosityCoefficient = None, diff = None ):
+        self.viscosityCoefficient = viscosityCoefficient
+        self.diff = diff
+
+    def set_viscosityCoefficient( self, v ):
+        self.viscosityCoefficient = v
+        return self
+
+    def dot_r( self ): #dot_r is the EoM governing the temporal evolution of coordinate
+        return lambda t, r, u: u #for the simplectic scheme, the time derivative of r is simply the velocity, u
+
+    def dot_u( self ): #dot_u is the EoM governing the temporal evolution of velocity
+        return lambda t, r, u: self.viscosityCoefficient * self.diff( self.diff(u,r), r ) #according to Burger equation, the time derivative of velocity is related to the second order spatial derivative of distribution, it is done by evoking first order derivative twice! XXX
+
+    def interp( self ):
+        return lambda t, u, r, x: self.interpolator( u, r, x )
+
+    def set_diff( self, method ): #method is supposed to be an instance of StandardSPH or KernelGradientFree (for the evaluation of spatial derivatives)
+        self.interpolator = method.interp #the function
+        self.diff = method.diff #first derivative
+        return self
+
+class LagrangianSystem:
+    def __init__( self ):
+        self.dot_r = None
+        self.dot_u = None
+
+    def set_timeStep( self, dt0 ):
+        self.timeStep = dt0
+        return self
+
+    def set_endTime( self, tf ):
+        self.endTime = tf
+        return self
+
+    def set_outputFile( self, out ):
+        self.outputFile = Output #XXX? dangling code?
+        return self
+
+    def set_equations( self, eqs ):
+        self.dot_r = eqs.dot_r()
+        self.dot_u = eqs.dot_u()
+        return self
+
+    def set_interpolator( self, interpolator ):
+        self.interp = interpolator.interp
+        return self
+
+    def set_integrator( self, integrator ):
+        self.timeIntegrator = integrator
+        return self
+
+    def set_initialCondition( self, r0, u0 ):
+        self.t = 0
+        self.r = r0
+        self.u = u0( self.r ) # u0 should be defined as a function and passed as input. as an example, u0( x, u_0, L ), the definition can be found below
+        return self
+
+    def boundaryCondition( self, t, r, u ): # set the boundary condition in accordance to the value stored in the class variable XXX
+        u[0] = self.u[0]
+        u[-1] = self.u[-1]
+        r[0] = self.r[0]
+        r[-1] = self.r[-1]
+        return r, u
+
+    def addBoundary( self, t, r, u ): #XXX
+        br1 = 2*r[0] - r[:5]
+        br2 = 2*r[-1] - r[-5:]
+
+        return r, u
+
+    def removeBoundary( self, t, r, u ):
+        return r, u
+
+    def integrate( self, fname, signal=None ): #it does the integration, and output the result into the file indicated by fname, singal is use to display result a live
+
+        t, r, u = float(self.t), self.r.copy(), self.u.copy()
+
+        print( 'r', len(r) )
+        print( 'u', len(u) )
+
+        stream = Output( fname ) #instantiate an object of Output class
+        stream.write(t,r,u)
+
+        loopnumber = 0
+
+        while 1:
+            loopnumber += 1
+            print( '%d'%loopnumber, end=' ' )
+            t0 = time.time()
+            dt = self.timeStep
+            t, r, u = self.timeIntegrator( self.dot_r, self.dot_u )( t, r, u, dt ) #integration is carried out by the symplectic integrator chosen beforehand by set_integrator() method, here the equation of motion (self.dot_r, self.dot_u) are chosen beforehand by set_equations() method
+            r, u = self.boundaryCondition( t, r, u )
+            r, u = self.fixCrossingPair( r, u )
+
+            stream.write( t, r, u )
+            elapsed = time.time() - t0
+            print( 'clock %.2e (%.2e/N) t=%s'%( elapsed, elapsed/len(r), t ), end='; ' )
+
+            crossed = argwhere( r[1:] < r[:-1] ) #XXX?
+            if len(crossed) > 0:
+                print( '(crossed %d)'%len(crossed), end='; ' )
+                print( crossed.T )
+                #exit(0)
+
+            if np.min(t) >= self.endTime:
+                print( 'reached tf; simulation ended' )
+                break
+            plotOutputs( stream )
+            if signal is not None: signal() #the singal is use to display result a live
+            print('')
+        print( 'finished' )
+        plotOutputs( stream )
+        return
+
+    def fixCrossingPair( self, r, u ): #XXX?
+        ufix = u[:]
+        n = 0
+        while 1:
+            n+=1
+            rnext = r + ufix*self.timeStep*2
+            frozenCluster = zeros_like(r)
+
+            crossed = argwhere( rnext[1:] < rnext[:-1] ).T[0]
+            if len(crossed) == 0:
+                return r, ufix
+            print( 'will cross', len(crossed) )
+            for cross in crossed:
+                newCluster = int(max( frozenCluster ))+1
+                if frozenCluster[cross] == 0:
+                    frozenCluster[cross] = newCluster
+                    frozenCluster[cross+1] = newCluster
+
+                else:
+                    frozenCluster[cross+1] = frozenCluster[cross]
+
+            u_interp = self.interp( ufix, rnext )
+            ufixnew = ufix[:]
+            for i in range(1, int(max( frozenCluster ))+1 ):
+                args = argwhere( frozenCluster == i )
+                if len(args) == 0: continue
+                print('freeze', i, args.T )
+                ufixnew[ args ] = u_interp[ args ]
+            ufix = ufixnew[:]
+        return r, ufix
+
+    def fixCrossing( self, r, u ): #XXX?
+        ufix = u.copy()
+        n = 0
+        while 1:
+            n+=1
+            rnext = r + ufix*self.timeStep*2
+            frozenCluster = zeros_like(r)
+
+            crossed = argwhere( rnext[1:] < rnext[:-1] ).T[0]
+            if len(crossed) == 0:
+                return r, ufix
+            print( 'crossed', len(crossed) )
+            for crossPair in crossed:
+                for cross in [crossPair, crossPair+1]:
+                    newCluster = int(max( frozenCluster ))+1
+                    if frozenCluster[cross-1] == 0 and frozenCluster[cross+1] == 0:
+                        frozenCluster[cross] = newCluster
+
+                    elif frozenCluster[cross-1] == 0:
+                        frozenCluster[cross] = frozenCluster[cross+1]
+
+                    elif frozenCluster[cross+1] == 0:
+                        frozenCluster[cross] = frozenCluster[cross-1]
+
+                    elif frozenCluster[cross-1] < frozenCluster[cross+1]:
+                        frozenCluster[cross] = frozenCluster[cross-1]
+
+                    else:
+                        frozenCluster[cross] = frozenCluster[cross+1]
+
+            for i in range(1, int(max( frozenCluster ))+1 ):
+                args = argwhere( frozenCluster == i )
+                if len(args) == 0: continue
+                print('freeze', i, args.T )
+                uCM = sum( u[args] )/len(args)
+                ufix[ args ] = uCM + ( ufix[args] - uCM )*.9**n
+
+def append( d, e, v ):#XXX? append value v to the element [e] of the list d, (d is a list of list so that d[e] can be appended by new items), if d[e] is empty then assign the value.
+    if e in d:
+        d[e].append(v)
+    else:
+        d[e] = [v] #XXX I got an error when trying this for e out of the range
+    return
+
+def readFile( fname ):
+    data = open( fname, 'r' ).readlines()
+    t = []
+    r = []
+    for line in data:
+        if line[0] == '#': continue #skip comments/legend start with '#'
+        linesplit = line.replace('  ', ' ').strip(' \n').split(' ')
+        t += [ float(linesplit[0]) ]
+        r += [ map( float, linesplit[1:] ) ]
+    t = array(t)
+    r = array(r)
+    print(r.shape)
+    return t, r
+
+def plotOutputs( stream ): #plot according to the Output class object called stream, and then save the plot
+    plt.rcParams['font.size'] = 12.
+    plt.rcParams['font.family'] = "serif"
+    plt.rcParams["xtick.labelsize"] = 'xx-small'
+    plt.rcParams["ytick.labelsize"] = 'xx-small'
+    width = plt.rcParams['figure.figsize'][0]/2
+
+    fig = plt.figure( figsize = (3*width,width*.75) )
+    grid = plt.GridSpec(2, 2, hspace=0, wspace=0) # a grid contains 2x2 windows for plot display, but only three subplots are shown
+    axr = fig.add_subplot(grid[0,0])
+    axu = fig.add_subplot(grid[1,1])
+    axprofile = fig.add_subplot(grid[1,0], sharex=axr, sharey=axu)
+    fig.subplots_adjust(wspace=0)
+    axr.grid(True)
+    axu.grid(True)
+    axprofile.grid(True)
+
+    t, r, u = stream.read()
+
+    indices = argwhere( abs(r[0,:] - 1) < 1.1 ) # only show those SPH particles whose initially stay in the neighborhood of 1, within the range of 1.1,
+    tmax = 1.
+    for i in indices:
+        axr.plot( r[:,i], t, '-', lw=.5 ) # the first index of r is time, the second is SPH particle index, therefore r[:,i] vs. t gives the trajectory of i-th SPH particle
+        axu.plot(t, u[:,i], '-', lw=.5 )
+    axprofile.plot( r[-1,:], u[-1,:], '-', label='t=%s'%t[-1] ) # r[-1,:] vs. u[-1,:] shows the spatial distribution of velocity regarding all SPH particle at the latest instant
+    axprofile.plot( r[0,:], u[0,:], ':', label='t=%s'%t[0] )
+    axr.set_ylabel('t')
+    axu.set_xlabel('t')
+    axprofile.set_xlabel( r'r(t)' )
+    axprofile.set_ylabel( r'u(t)' )
+    #axu.set_xlabel( r'u(t)' )
+    axprofile.legend( fancybox=True, framealpha=0 )
+
+    plt.setp(axu.get_yticklabels(), visible=False)
+    plt.setp(axr.get_xticklabels(), visible=False)
+    #plt.setp(axu.get_yticklabels(), visible=False)
+    # remove last tick label for the second subplot
+    #yticks = axu.yaxis.get_major_ticks()
+    #yticks[-1].label1.set_visible(False)
+
+    fig.tight_layout()
+    fig.savefig( stream.figname() )
+    print('savefig', stream.figname() )
+    plt.close()
+
+class SimulationApp(Gtk.Window): # for the package PyGTK, see https://python-gtk-3-tutorial.readthedocs.io/en/latest/introduction.html#simple-example
+
+    def __init__(self):
+        Gtk.Window.__init__( self, title="SPH Simulation" )
+        Output.cleanLocks( 'simulations/' )
+        self.connect( 'destroy', Gtk.main_quit )
+        self.set_border_width(3)
+        self.maximize()
+
+        self.vbox = Gtk.VBox() #this VBox object will be the main display window of the app
+
+        self.simulationPanels = [] #it is a list of HBox objects (panels for individual simulations), empty at start, new items are added by calling newSimulationPanel() method
+        self.paramsList = ['dt', 'h', 'N', 'IC', 'v', 'SPH' ]
+        self.paramsEntry = [] # to store the parameters
+        self.images = [] #display the results on the fly
+        self.threads = [] # to control the runtime thread
+        self.newSimulationPanel( self.simulationPanels ) #adds a panel (HBox) for independent simulation
+        self.newSimulationPanel( self.simulationPanels )
+        self.newSimulationPanel( self.simulationPanels, empty = True ) #this adds the '+' button
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.add_with_viewport( self.vbox ) #add to the main window (VBox) the scrollability needed, decrease the height of the app window to see how it works, also see https://developer.gnome.org/pygtk/stable/class-gtkscrolledwindow.html
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.add( scrolled ) #initiate an object VBox with scrollability
+
+        self.show_all() #refresh the view
+
+    def onaddclicked( self, widget ): # method function for add one new panel in runtime
+        self.simulationPanels[-1].destroy() #remove the '+' button
+        del self.simulationPanels[-1] #release the memory
+        self.newSimulationPanel( self.simulationPanels ) #add a new panel
+        self.newSimulationPanel( self.simulationPanels, True ) #add the '+' button
+        self.show_all()
+
+    def onminusclicked( self, widget, box ):
+        box.destroy()
+        ind = self.simulationPanels.index(box) #find the index of the panel in question, see https://www.programiz.com/python-programming/methods/list/index
+        self.simulationPanels[ ind ].destroy()
+        del self.simulationPanels[ ind ]
+        del self.paramsEntry[ ind ]
+        self.show_all()
+
+    def newSimulationPanel(self, panel, empty = False): #it receives a list called panel (namely, self.simulationPanels) which is a list of HBox objects
+        box = Gtk.HBox()
+        panel.append( box )
+        this = panel[-1] #the newly added one is the last one
+        self.vbox.pack_start(box, False, False, 3 ) # add the panel (HBox) to the main window (VBox), https://developer.gnome.org/pygtk/stable/class-gtkbox.html#method-gtkbox--pack-start
+
+        if empty: #below all the panels (HBox), indicated by the logical switch 'empty', is a button with label '+' to add another panel
+            button = Gtk.Button()
+            box.pack_start( button,  False, False, 3 ) #this button politically belongs to the HBox()
+            button.set_label(' + ')
+            button.connect( 'clicked', self.onaddclicked )
+            return
+
+        options = Gtk.VBox()
+        box.pack_start( options, False, False, 3 ) #add a VBox for the options (parameters) which contains various lines (HBox)
+
+        firstLine = Gtk.HBox() # the first line contain the title called 'simulation', and a destroyButton labeled 'x' to close the panel
+        title = Gtk.Label()
+        destroyButton = Gtk.Button()
+        options.pack_start(firstLine, False, False, 3 )
+
+        firstLine.pack_start(title, True, True, 3)
+        firstLine.pack_end(destroyButton, False, False, 3) #https://developer.gnome.org/pygtk/stable/class-gtkbox.html#method-gtkbox--pack-end
+
+        title.set_label('simulation')
+        destroyButton.set_label(' x ')
+        destroyButton.connect( 'clicked', self.onminusclicked, box )
+
+        secondLine = Gtk.HBox() #the following three lines (2-4) are to adjust parameters
+        thirdLine = Gtk.HBox()
+        fourthLine = Gtk.HBox()
+        options.pack_start(secondLine, False, False, 3 )
+        options.pack_start(thirdLine, False, False, 3 )
+        options.pack_start(fourthLine, False, False, 3 )
+        label = {}
+        self.paramsEntry.append( {} )
+        for key in self.paramsList:
+            label[key] = Gtk.Label()
+            label[key].set_label(key)
+            self.paramsEntry[-1][key] = Gtk.Entry() #the latest item of self.paramsEntry corresponds to the latest panel for simulation
+            self.paramsEntry[-1][key].set_width_chars(5)
+            if key == 'IC':
+                thirdLine.pack_start( label[key], False, False, 1) #add an object of Gtk.Label
+                thirdLine.pack_start( self.paramsEntry[-1][key], True, True, 1) #add an object of Gtk.Entry
+            elif key == 'SPH':
+                fourthLine.pack_start( label[key], False, False, 1)
+                fourthLine.pack_start( self.paramsEntry[-1][key], True, True, 1)
+            else:
+                secondLine.pack_start( label[key], False, False, 1)
+                secondLine.pack_start( self.paramsEntry[-1][key], True, True, 1)
+        if len( self.paramsEntry ) == 1: #assign these parameters when newSimulationPanel is evoked the first time, namely, when the first panel is created
+            self.paramsEntry[-1]['dt'].set_text( '0.01' )
+            self.paramsEntry[-1]['h'].set_text( '0.05' )
+            self.paramsEntry[-1]['N'].set_text( '125' )
+            self.paramsEntry[-1]['v'].set_text( '0.1' )
+            self.paramsEntry[-1]['IC'].set_text( 'sin(pi*x)' )
+            self.paramsEntry[-1]['SPH'].set_text( 'kgf3' )
+        elif len( self.paramsEntry ) == 2: #assign these parameters when newSimulationPanel is evoked the second time, namely, when the second panel is created
+            self.paramsEntry[-1]['dt'].set_text( '0.01' )
+            self.paramsEntry[-1]['h'].set_text( '0.05' )
+            self.paramsEntry[-1]['N'].set_text( '125' )
+            self.paramsEntry[-1]['v'].set_text( '0.01' )
+            self.paramsEntry[-1]['IC'].set_text( 'norm(x,.5,.2)' )
+            self.paramsEntry[-1]['SPH'].set_text( 'kgf3' )
+        else: # get the parameters from the last panel
+            self.paramsEntry[-1]['dt'].set_text( self.paramsEntry[-2]['dt'].get_text() )
+            self.paramsEntry[-1]['h'].set_text( self.paramsEntry[-2]['h'].get_text() )
+            self.paramsEntry[-1]['N'].set_text( self.paramsEntry[-2]['N'].get_text() )
+            self.paramsEntry[-1]['v'].set_text( self.paramsEntry[-2]['v'].get_text() )
+            self.paramsEntry[-1]['IC'].set_text( self.paramsEntry[-2]['IC'].get_text() )
+            self.paramsEntry[-1]['SPH'].set_text( self.paramsEntry[-2]['SPH'].get_text() )
+
+        runButton = Gtk.Button()
+        options.pack_end(runButton, False, False, 3 )
+        runButton.set_label('run')
+        runButton.connect( 'clicked', self.onclickrun, len(panel)-1 ) # here "len(panel)-1" is the index of the panel in the list
+
+        self.images.append( Gtk.Image() ) #each panel is also associated to a Gtk.Image object to display the results on the fly
+        #scrolled = Gtk.ScrolledWindow()
+        #scrolled.add_with_viewport(self.images[-1])
+        #scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+
+        box.pack_start( self.images[-1], True, True, 3 )
+        return
+
+    def refreshImage( self, panelIndex, figname ): #invoked (by integrate() method of LagrangianSystem Class) when the calculations are taking place and to show the plot in real time, defined by onclickrun() since how signal should behave should be determined by whom uses it.
+        self.images[panelIndex].set_from_pixbuf( GdkPixbuf.Pixbuf.new_from_file( figname ) )
+        print('signal', figname )
+        self.show_all() #XXX the real signal is never sent, but not "None" means the signal!
+
+    def onclickrun( self, widget, panelIndex ):
+        print( 'run panelIndex', panelIndex )
+        L = 1.
+        u_0 = 1.
+        N = int(self.paramsEntry[panelIndex]['N'].get_text())
+        dt = float(self.paramsEntry[panelIndex]['dt'].get_text())
+        h0 = float(self.paramsEntry[panelIndex]['h'].get_text())
+        v = float(self.paramsEntry[panelIndex]['v'].get_text())
+        ic_str = self.paramsEntry[panelIndex]['IC'].get_text()
+        sph_str = self.paramsEntry[panelIndex]['SPH'].get_text()
+
+        outname = 'simulations/dt%sh%sN%sv%s_ic=%s_sph%s.dat'%(dt,h0,N,v,ic_str,sph_str)
+        figname = outname.replace('.dat', '.png')
+        print( 'outname', outname, figname )
+        if not os.path.exists('simulations/'): os.makedirs('simulations/')
+
+        ic = lambda x: eval( ic_str ) # turn the string ic_str into a function (u0) for initial velocity
+        #def u0( x, u_0, L ):
+            #return u_0*sin(pi*x/L)
+
+        system = LagrangianSystem()
+        system.set_timeStep( dt )
+        system.set_endTime( 1. )
+        system.set_initialCondition( r0 = linspace( 0., 2.*L, N ), u0 = ic )
+
+        burger = Burger()
+        burger.set_viscosityCoefficient( v )
+        if sph_str.startswith('standard'): #if the string starts with, startswith() is a string manipulation method
+            interpolator = StandardSPH( sph = BaseSPH( h0 = h0, W = 'qspline', density = N/L*h0 ) )
+        elif sph_str.startswith('kgf'):
+            if sph_str[-1].isdigit(): order=int(sph_str[-1])
+            else: order=3
+            interpolator = KernelGradientFree( sph = BaseSPH( h0 = h0, W = 'qspline', density = N/L*h0 ), order = order, basepower = 0 )
+        else:
+            print('unpredicted SPH method')
+            return
+        burger.set_diff( interpolator )
+        system.set_equations( burger )
+        system.set_interpolator( interpolator )
+        system.set_integrator( TimeIntegrators.Sympletic.RungeKutta4 )
+
+        def run():
+            return system.integrate( outname, signal=lambda: self.refreshImage(panelIndex, figname) ) #lambda function signal() is used to refresh the view
+        self.threads.append( threading.Thread(target=run) ) #append the current run to the list of threads, also see https://realpython.com/intro-to-python-threading/
+        self.threads[-1].daemon = True
+        self.threads[-1].start()
+        return
+
+norm = lambda x, loc=0, scale=1.: exp(-.5*(x-loc)**2/scale**2)/sqrt(2*pi)/scale
+
+if __name__ == '__main__':
+    app = SimulationApp()
+    Gtk.main()
+    exit(0) #XXX why there are code after exit(0)
+    print(sys.argv) #https://www.pythonforbeginners.com/system/python-sys-argv
+    if len(sys.argv) > 1:
+        plotOutputs( sys.argv[-1] ) #[-1] indicates the last item in a list https://stackoverflow.com/questions/509211/understanding-slice-notation
+        exit(0)
+
+    L = 1.
+    u_0 = 1.
+    N = 251
+
+    def u0( x, u_0, L ):
+        return u_0*sin(pi*x/L)
+
+    v = .05
+    system = LagrangianSystem()
+    system.set_timeStep( .01 )
+    system.set_endTime( 3. )
+    system.set_initialCondition( r0 = linspace( 0., 2.*L, N ), u0 = lambda x: u0( x, u_0, L ) )
+
+    if False:
+        anaSol = AnalyticalSolution( v ) #among other parameters viscosity coefficient (v) is input to construct the solution, among which, the velocity (.u) is utilized, see definition of the class AnalyticalSolution for detail
+        def AnalyticalIntegrator( dot_r, dot_u ): #XXX dot_r, dot_u are not used, different from eg. TimeIntegrators.Sympletic.RungeKutta4
+            def integrator( t, r, u, dt ):
+                t, r = TimeIntegrators.RK4( anaSol.u )( t, r, dt ) #according to the definition, it receives a function (velocity) as input and returns a function which receives (t, y, dt) and returns temporal evolved or analytically calculated values (t', y', u')
+                return t, r, anaSol.u( t, r ) #the integrator receives (t, q, p, dt) returns evolved (t', q', p')
+            return integrator
+        system.set_integrator( AnalyticalIntegrator ) #by definition, set_integrator() receives a sympletic integrator, as AnalyticalIntegrator produces such a function
+        system.integrate( 'analyticalv%s.dat'%v ) #evalute, save file and plot
+
+    h0 = .05
+    burger = Burger()
+    burger.set_viscosityCoefficient( v )
+    burger.set_diff( KernelGradientFree( sph = BaseSPH( h0 = h0, W = 'qspline', density = N/L*h0 ), order = 3, basepower = 0 ) )
+    system.set_equations( burger )
+
+    system.set_integrator( TimeIntegrators.Sympletic.RungeKutta4 ) #by definition, set_integrator() receives a sympletic integrator, as TimeIntegrators.Sympletic.RungeKutta4 produces such a function
+    system.integrate( 'simulationv%s.dat'%v )
+
+    exit(0)
+
+exit(0)
