@@ -18,8 +18,201 @@ import kernel
 import threading
 
 import gi
-#gi.require_version('Gtk', '2.0')
+gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf, GObject, GLib
+
+def get_base(a):
+    if isinstance(a, Pow):
+        return a.base
+    else:
+        return a
+
+def get_exp(self):
+    if isinstance(self, Pow):
+        return self.exp
+    else:
+        return 1
+    
+class Base:
+    def __init__(self, a):
+        print('base init')
+
+    def __neg__(self):
+        return Neg(self)
+    
+    def __add__(self, a):
+        result = None
+        if self == 0:
+            result = a
+        elif a == 0:
+            result = self
+        elif a == -self:
+            return 0
+        elif isinstance(self, Add):
+            for elem in self.args:
+                if elem == -a:
+                    a = None
+                    self.args.remove(elem)
+                    print('rem', self)
+                    result = self
+            if not a is None:
+                self.args.add(a)
+                print('add',self)
+                result = self
+        elif isinstance(a, Add):
+            result = a + self
+        else:
+            result = Add( (self, a) )
+        return result
+    
+    __radd__ = __add__
+    
+    def __sub__(self, a):
+        return self + (-a)
+    
+    def __mul__(self, a):
+        print('mul',self,a)
+        if self == 1:
+            return a
+        elif a == 1:
+            return self
+        elif a == 0:
+            return 0
+        elif isinstance(self, Mul):
+            for elem in self.args:
+                if get_base(elem) == get_base(a):
+                    print('same base', self, a, get_exp(elem), get_exp(a), get_exp(elem) + get_exp(a) )
+                    new_elem = elem**( get_exp(elem) + get_exp(a) )
+                    print('new_elem', new_elem)
+                    self.args.remove(elem)
+                    print(self)
+                    return self*new_elem
+            self.args.add(a)
+            return self
+        elif isinstance(a, Mul):
+            return a*self
+        return Mul( (self, a) )
+    
+    __rmul__ = __mul__
+    
+    def __pow__(self,a):
+        if a == 0:
+            return 1
+        elif a == 1:
+            return self
+        elif isinstance(self, Pow):
+            print('pow', self, a)
+            self.exp = self.exp + a
+            print('pow2', self)
+            return self
+        return Pow( self, a )
+    
+    def __div__(self,a):
+        return self * a**(-1)
+
+
+class Symbol(Base):
+    def __init__( self, name ):
+        self.name = name
+    def __str__( self ):
+        return self.name
+    
+class Neg(Base):
+    def __init__(self, a):
+        self.a = a
+    
+    def __str__(self):
+        return '-%s' % (self.a)
+    
+class Add(Base):
+    def __init__( self, args ):
+        self.args = set(args)
+    def __str__(self):
+        return '[%s]' % ' + '.join( map( lambda _: _.__str__(), self.args) )
+
+class Mul(Base):
+    def __init__( self, args ):
+        self.args = set(args)
+    def __str__(self):
+        return '[%s]' % '*'.join( map( lambda _: _.__str__(), self.args) )
+    def get_bases(self):
+        return [ get_base(elem) for elem in self.args ]
+
+class Pow(Base):
+    def __init__(self, a, b ):
+        self.base, self.exp = self.eval(a,b)
+    def eval( self, a, b ):
+        return a, b
+    def __str__( self ):
+        return '(%s)^(%s)' % (self.base, self.exp)
+        
+class Div(Base):
+    def __init__(self, a, b ):
+        self.numerator = a
+        self.denominator = b
+        self.eval()
+    
+    def eval( self ):
+        print( self.args[0].__class__ )
+        print( isinstance(self.args[0], Base) )
+    
+    def __str__( self ):
+        return '(%s/%s)' % (self.args[0], self.args[1])
+    
+class Function(Base):
+    pass
+
+class Operator(Base):
+    pass
+
+
+class Expression(Base):
+    def __init__( self, op, args ):
+        self.op = op
+        self.args = args
+    
+    def __str__( self ):
+        return '(%s/%s)' % (self.args[0], self.args[1] )
+
+class d(Base):
+    def __init__(self, a ):
+        self.a = self.eval(a)
+    
+    def eval( self, a ):
+        if isinstance( a, Symbol):
+            return a
+        elif isinstance(a, Add):
+            return Add( [ d(elem) for elem in a.args ] )
+        elif isinstance(a, Mul):
+            return Add( [ d(j)*a/j for j in list(a.args) ] )
+        elif isinstance(a, Pow):
+            return a.exp * a.base **(a.exp-1) * d(a.base)
+        else:
+            raise Exception('no derivative defined for %s' % a.__class__ )
+    
+    def __str__(self):
+        if isinstance(self.a, Symbol):
+            return 'd(%s)' % self.a
+        else:
+            return self.a.__str__()
+    
+
+#Lagrangean = Symbol('L')
+#a = Symbol('a')
+#E = Symbol('E')
+#G = Symbol('G')
+#print( 0+E+G+G-G )
+#print( d(E+G+G) )
+#exit(0)
+
+#gamma = Symbol(r'\gamma')
+#print(E/gamma)
+#print( d(E/gamma) )
+#exit(0)
+#print( SymbolSum( a, (0,N), E[a]/gamma[a] ) )
+#Lagrangean.assign( SymbolSum( a, (0,N), E[a]/gamma[a] ) )
+#print(Lagrangean)
+#exit(0)
 
 #def SL2(fp,fv):
     #return lambda p, q, dt: ( lambda dp1: (
@@ -363,6 +556,7 @@ def merge( r, p, h, status, fuse=False ):
     print( 'after', r[ind], p[ind], h[ind] )
     
     print( 'merge!!!' )
+
     print( 'before', r.shape )
     r = delete(r, remove)
     p = delete(p, remove)
@@ -372,6 +566,14 @@ def merge( r, p, h, status, fuse=False ):
     print( 'after', r.shape )
 
     return r, p, h, status
+
+class BaseInterpolator:
+    def set_positions( self, r ):
+        self.r = r
+        self.i = ((r - np.amin(r, axis=1))/self.h).astype(int)
+        print( 'max', np.amax(self.i, axis=1) )
+        #self.neighbors = np.zeros( () )
+        
 
 class BaseSPH:
     def __init__( self, h0, W, density, phi='ref' ):
@@ -532,25 +734,26 @@ class Output:
             os.remove( lock )
         
     def header( self, N ):
-        for s in [ 'r', 'u' ]:
+        for s in [ 'r', 'u', 'u_smooth' ]:
             f = open( self.makeName(s), 'w' )
             f.write("# t " + ' '.join( map(lambda x: '%s[%d]'%(s,x), range(N) ) ) + '\n' )
             f.close()
         self.doneHeader = True
     
-    def write( self, t, r, u ):
+    def write( self, t, r, u, u_smooth ):
         if not self.doneHeader:
             self.header( len(r) )
-        for s, arr in [ ('r', r), ('u', u) ]:
+        for s, arr in [ ('r', r), ('u', u), ('u_smooth', u_smooth) ]:
             f = open( self.makeName(s), 'a' )
-            f.write("%f "%t + ' '.join( map(lambda x: '%f'%x, arr ) ) + '\n' )
+            f.write("%f "%t + ' '.join( map(lambda x: '%s'%x, arr ) ) + '\n' )
             f.close()
 
     def read( self ):
         t = []
         r = []
         u = []
-        for s in [ 'r', 'u' ]:
+        u_smooth = []
+        for s in [ 'r', 'u', 'u_smooth' ]:
             data = open( self.makeName(s), 'r' ).readlines()
             for line in data:
                 if line[0] == '#': continue
@@ -560,10 +763,13 @@ class Output:
                     t += [ float(linesplit[0]) ]
                 elif s == 'u':
                     u += [ map( float, linesplit[1:] ) ]
+                elif s == 'u_smooth':
+                    u_smooth += [ map( float, linesplit[1:] ) ]
         t = array(t)
         r = array(r)
         u = array(u)
-        return t, r, u
+        u_smooth = array(u_smooth)
+        return t, r, u, u_smooth
         
         #for s, arr in [ ('r', r), ('u', p) ]:
             #fname = 'plots/sph_%svst_%s'%(s, self.name)
@@ -587,12 +793,22 @@ class Burger:
         return lambda t, r, u: self.viscosityCoefficient * self.diff( self.diff(u,r), r )
     
     def interp( self ):
-        return lambda t, u, r, x: self.interpolator( u, r, x )
+        return lambda t, u, r: self.interpolator( u, r )
             
     def set_diff( self, method ):
         self.interpolator = method.interp
         self.diff = method.diff
         return self
+
+class Hydro:
+    def dot_r(self):
+        return lambda t, r, u: u
+    
+    def dot_u(self):
+        return lambda t, r, u: - self.gradP(u,r)/self.s(u,r)
+    
+    def gradP(self):
+        return -( self.diff( self.P()/self.s(), r ) + self.P()/self.s()**2 * self.diff( self.s(), r ) )
     
 class LagrangianSystem:
     def __init__( self ):
@@ -629,6 +845,9 @@ class LagrangianSystem:
         self.t = 0
         self.r = r0
         self.u = u0( self.r )
+        print('r', r0)
+        print('r0shape', r0.shape)
+        print('u0shape', self.u.shape)
         return self
         
     def boundaryCondition( self, t, r, u ):
@@ -641,7 +860,6 @@ class LagrangianSystem:
     def addBoundary( self, t, r, u ):
         br1 = 2*r[0] - r[:5]
         br2 = 2*r[-1] - r[-5:]
-        
         return r, u
     
     def removeBoundary( self, t, r, u ):
@@ -651,11 +869,12 @@ class LagrangianSystem:
         
         t, r, u = float(self.t), self.r.copy(), self.u.copy()
 
+        self.linklist(r,)
         print( 'r', len(r) )
         print( 'u', len(u) )
         
         stream = Output( fname )
-        stream.write(t,r,u)
+        stream.write(t,r,u,u)
 
         loopnumber = 0
         
@@ -667,15 +886,16 @@ class LagrangianSystem:
             t, r, u = self.timeIntegrator( self.dot_r, self.dot_u )( t, r, u, dt )
             r, u = self.boundaryCondition( t, r, u )
             r, u = self.fixCrossingPair( r, u )
-
-            stream.write( t, r, u )
+            u_smooth = self.interp( u, r )
+            
+            stream.write( t, r, u, u_smooth )
             elapsed = time.time() - t0
             print( 'clock %.2e (%.2e/N) t=%s'%( elapsed, elapsed/len(r), t ), end='; ' )
 
             crossed = argwhere( r[1:] < r[:-1] )
             if len(crossed) > 0:
                 print( '(crossed %d)'%len(crossed), end='; ' )
-                print( crossed.T )
+                print( 'c', crossed.T )
                 #exit(0)
 
             if np.min(t) >= self.endTime:
@@ -774,7 +994,7 @@ def readFile( fname ):
         r += [ map( float, linesplit[1:] ) ]
     t = array(t)
     r = array(r)
-    print(r.shape)
+    print('rshape', r.shape)
     return t, r
     
 def plotOutputs( stream ):
@@ -794,19 +1014,20 @@ def plotOutputs( stream ):
     axu.grid(True)
     axprofile.grid(True)
 
-    t, r, u = stream.read()
+    t, r, u, u_smooth = stream.read()
 
     indices = argwhere( abs(r[0,:] - 1) < 1.1 )
     tmax = 1.
     for i in indices:
         axr.plot( r[:,i], t, '-', lw=.5 )
-        axu.plot(t, u[:,i], '-', lw=.5 )
-    axprofile.plot( r[-1,:], u[-1,:], '-', label='t=%s'%t[-1] )
-    axprofile.plot( r[0,:], u[0,:], ':', label='t=%s'%t[0] )
+        #print( 't.x.u', t, u[:,i] )
+        axu.plot( t, u[:,i], '-', lw=.5 )
+    axprofile.plot( r[-1,:], u_smooth[-1,:], '-', label='t=%s'%t[-1] )
+    axprofile.plot( r[0,:], u_smooth[0,:], ':', label='t=%s'%t[0] )
     axr.set_ylabel('t')
     axu.set_xlabel('t')
     axprofile.set_xlabel( r'r(t)' )
-    axprofile.set_ylabel( r'u(t)' )
+    axprofile.set_ylabel( r'u[smooth](t)' )
     #axu.set_xlabel( r'u(t)' )
     axprofile.legend( fancybox=True, framealpha=0 )
     
@@ -825,7 +1046,6 @@ def plotOutputs( stream ):
 class SimulationApp(Gtk.Window):
     
     def __init__(self):
-        GObject.threads_init()
         Gtk.Window.__init__( self, title="SPH Simulation" )
         Output.cleanLocks( 'simulations/' )
         self.connect( 'destroy', Gtk.main_quit )
@@ -840,9 +1060,9 @@ class SimulationApp(Gtk.Window):
         self.images = []
         self.pixbufs = []
         self.threads = []
-        self.newSimulationPanel( self.simulationPanels )
-        self.newSimulationPanel( self.simulationPanels )
-        self.newSimulationPanel( self.simulationPanels, empty = True )
+        self.createSimulationPanel( self.simulationPanels )
+        self.createSimulationPanel( self.simulationPanels )
+        self.createSimulationPanel( self.simulationPanels, empty = True )
         
         scrolled = Gtk.ScrolledWindow()
         scrolled.add_with_viewport( self.vbox )
@@ -854,8 +1074,8 @@ class SimulationApp(Gtk.Window):
     def onaddclicked( self, widget ):
         self.simulationPanels[-1].destroy()
         del self.simulationPanels[-1]
-        self.newSimulationPanel( self.simulationPanels )
-        self.newSimulationPanel( self.simulationPanels, True )
+        self.createSimulationPanel( self.simulationPanels )
+        self.createSimulationPanel( self.simulationPanels, True )
         self.show_all()
 
     def onminusclicked( self, widget, box ):
@@ -866,7 +1086,7 @@ class SimulationApp(Gtk.Window):
         del self.paramsEntry[ ind ]
         self.show_all()
         
-    def newSimulationPanel(self, panel, empty = False):
+    def createSimulationPanel(self, panel, empty = False):
         box = Gtk.HBox()
         panel.append( box )
         this = panel[-1]
@@ -980,7 +1200,8 @@ class SimulationApp(Gtk.Window):
         system = LagrangianSystem()
         system.set_timeStep( dt )
         system.set_endTime( 1. )
-        system.set_initialCondition( r0 = linspace( 0., 2.*L, N ), u0 = ic )
+        r0 = np.array( [ [2*L/N*i, 2*L/N*j] for i in range(N) for j in range(N)] )
+        system.set_initialCondition( r0 = r0, u0 = ic )
         
         burger = Burger()
         burger.set_viscosityCoefficient( v )
@@ -1007,14 +1228,62 @@ class SimulationApp(Gtk.Window):
 
 norm = lambda x, loc=0, scale=1.: exp(-.5*(x-loc)**2/scale**2)/sqrt(2*pi)/scale
 
+import itertools
+def array_to_int( r, h=1 ):
+    return np.rint(r/h).astype(int)
+    
+def array_to_int_tuple( r, h=1):
+    return tuple(array_to_int(r,h))
+
+def make_link_list( r, h, d=1, radius=2 ):
+    n = array_to_int(r, h)
+    linklist = {}
+    shifts = range(-radius,radius+1)
+    listofshifts = [ shifts for i in range(d) ]
+    nshifts = tuple(itertools.product(*listofshifts) )
+    
+    for i,ni in enumerate(n):
+        for ns in nshifts:
+            try:
+                linklist[ tuple(ni + ns) ].append(i)
+            except:
+                linklist[ tuple(ni + ns) ] = [i]
+    return linklist
+
+def interpolation( r, h, W, x, f ):
+    return np.sum( f*W( x, r, h ) )
+
+def generate_IC(mode='random', dimension=1, N=100):
+    modes = {'random': 'generate random r and u'}
+    if mode is 'random':
+        r = np.random.rand(d*N)
+        u = np.random.rand(d*N)
+        r = np.reshape(r,(-1,d))
+        u = np.reshape(u,(-1,d))
+        return r, u
+    raise Exception( '''IC mode "%s" not defined\ndefined modes are %s''' % (mode, modes ) )
+
 if __name__ == '__main__':
+    print(dir(kernel))
+    h = .2
+    d = 3
+    r, u = generate_IC(mode='random', dimension=d, N=1000)
+    kernel_function = kernel.generate_kernel_function(mode='cspline', length=h, dimension=d)
+    print( kernel_function(r[0], r[:10]) )
+    print( r[0], r, 'r' )
+    link_list = make_link_list( r, h, d )
+    #print( 'list index 0', link_list[ array_to_int_tuple(r[0],h) ] )
+    W = kernel.derivatives('qspline', d)
+    print(interpolation( r, h, W[0], r[0], 1 ))
+    exit(0)
+    
     app = SimulationApp()
     Gtk.main()
     exit(0)
-    print(sys.argv)
-    if len(sys.argv) > 1:
-        plotOutputs( sys.argv[-1] )
-        exit(0)
+    #print(sys.argv)
+    #if len(sys.argv) > 1:
+        #plotOutputs( sys.argv[-1] )
+        #exit(0)
     
     L = 1.
     u_0 = 1.
@@ -1027,7 +1296,7 @@ if __name__ == '__main__':
     system = LagrangianSystem()
     system.set_timeStep( .01 )
     system.set_endTime( 3. )
-    system.set_initialCondition( r0 = linspace( 0., 2.*L, N ), u0 = lambda x: u0( x, u_0, L ) )
+    system.set_initialCondition( r0 = np.reshape( linspace( 0., 2.*L, N ), (-1,1) ), u0 = lambda x: u0( x, u_0, L ) )
     
     if False:
         anaSol = AnalyticalSolution( v )
@@ -1044,6 +1313,9 @@ if __name__ == '__main__':
     burger.set_viscosityCoefficient( v )
     burger.set_diff( KernelGradientFree( sph = BaseSPH( h0 = h0, W = 'qspline', density = N/L*h0 ), order = 3, basepower = 0 ) )
     system.set_equations( burger )
+
+    interpolator = KernelGradientFree( sph = BaseSPH( h0 = h0, W = 'qspline', density = N/L*h0 ), order = order, basepower = 0 )
+    system.set_interpolator( interpolator )
 
     system.set_integrator( TimeIntegrators.Sympletic.RungeKutta4 )
     system.integrate( 'simulationv%s.dat'%v )
