@@ -1,252 +1,175 @@
+import os
 from sympy import *
 from sympy.core.singleton import S
 
 init_printing()
+opening_string = r'''
+\documentclass{article}
+\usepackage{amsmath}
+%\usepackage{nath}
+%\delimgrowth=1
+\usepackage{breqn}
+\delimitershortfall=-1pt
+\def\operatorname{}
+\begin{document}
+'''
+open('output.tex','w').write( opening_string )
+def print2file( str ):
+    output = open('output.tex','a')
+    output.write( str + '\n' )
+    return
 
-Dummy.init = Dummy.__init__
-def new__init__( self, a='', dummy_index='', commutative=True ):
-    if a == 'xi_0':
-        print 'new Dummy', a, dummy_index, commutative
-        #raise Exception('here')
-    Dummy.init(self, a='', dummy_index=dummy_index, commutative=commutative)
-    
-Dummy.__init__ = new__init__
+def section(title):
+    print2file( r'\section{%s}' % title )
 
-def new_fdiff( self, argindex ):
-    """
-    Returns the first derivative of the function.
-    """
-    if not (1 <= argindex <= len(self.args)):
-        raise ArgumentIndexError(self, argindex)
-    ix = argindex - 1
-    A = self.args[ix]
-    if A._diff_wrt:
-        if len(self.args) == 1:
-            return Derivative(self, A)
-        if A.is_Symbol:
-            for i, v in enumerate(self.args):
-                if i != ix and A in v.free_symbols:
-                    # it can't be in any other argument's free symbols
-                    # issue 8510
-                    break
-            else:
-                return Derivative(self, A)
-        else:
-            free = A.free_symbols
-            for i, a in enumerate(self.args):
-                if ix != i and a.free_symbols & free:
-                    break
-            else:
-                # there is no possible interaction bewtween args
-                return Derivative(self, A)
-    # See issue 4624 and issue 4719, 5600 and 8510
-    #D = Dummy('xi_%i' % argindex, dummy_index=hash(A))
-    #args = self.args[:ix] + (D,) + self.args[ix + 1:]
-    #return Subs(Derivative(self.func(*args), D), D, A)
-    print 'no xi here'
-    return Derivative( self.func(*self.args), A )
+def par(s):
+    print2file( s )
 
+def eq( lhs, rhs = None ):
+    #s = r'$$'
+    s = r'\begin{dmath}'
+    if rhs is None:
+        s += '\n' + latex( simplify(lhs.doit()).expand() )
+    else:
+        s += '\n' + latex( lhs )
+        s += '\n=\n' + latex( simplify(rhs.doit() ).expand() )
+    s += '\n$$'
+    s += '\n'+r'\end{dmath}'
+    print2file( s )
 
-def new_eval_subs(self, old, new):
-    # The substitution (old, new) cannot be done inside
-    # Derivative(expr, vars) for a variety of reasons
-    # as handled below.
-    if old in self._wrt_variables:
-        # first handle the counts
-        expr = self.func(self.expr, *[(v, c.subs(old, new))
-            for v, c in self.variable_count])
-        if expr != self:
-            return expr._eval_subs(old, new)
-        # quick exit case
-        if not getattr(new, '_diff_wrt', False):
-            # case (0): new is not a valid variable of
-            # differentiation
-            if isinstance(old, Symbol):
-                # don't introduce a new symbol if the old will do
-                return Subs(self, old, new)
-            else:
-                xi = Dummy('xi')
-                return Subs(self.xreplace({old: xi}), xi, new)
+def convert2pdf():
+    os.system('pdflatex output.tex')
 
-    # If both are Derivatives with the same expr, check if old is
-    # equivalent to self or if old is a subderivative of self.
-    if old.is_Derivative and old.expr == self.expr:
-        if self.canonical == old.canonical:
-            return new
+def const_Diff(self, var, **kwargs):
+    return S.Zero
+Integer.Diff = const_Diff
+Rational.Diff = const_Diff
 
-        # collections.Counter doesn't have __le__
-        def _subset(a, b):
-            return all((a[i] <= b[i]) == True for i in a)
+def symbol_Diff( self, var, **kwargs ):
+    if self == var:
+        return S.One
+    return S.Zero
+Symbol.Diff = symbol_Diff
 
-        old_vars = Counter(dict(reversed(old.variable_count)))
-        self_vars = Counter(dict(reversed(self.variable_count)))
-        if _subset(old_vars, self_vars):
-            return Derivative(new, *(self_vars - old_vars).items()).canonical
+def mul_Diff( self, var, **kwargs ):
+    df = 0
+    prod = 1
+    for i, arg in enumerate(self.args):
+        prod *= arg
+    for i, arg in enumerate(self.args):
+        df += prod/arg*arg.Diff( var, **kwargs )
+    return df
+Mul.Diff = mul_Diff
 
-    args = list(self.args)
-    newargs = list(x._subs(old, new) for x in args)
-    if args[0] == old:
-        # complete replacement of self.expr
-        # we already checked that the new is valid so we know
-        # it won't be a problem should it appear in variables
-        return Derivative(*newargs)
+def pow_Diff( self, var, **kwargs ):
+    a, b = self.args
+    return a**b * ( a.Diff(var, **kwargs)*b/a + b.Diff(var, **kwargs)*log(a) )
+Pow.Diff = pow_Diff
 
-    if newargs[0] != args[0]:
-        # case (1) can't change expr by introducing something that is in
-        # the _wrt_variables if it was already in the expr
-        # e.g.
-        # for Derivative(f(x, g(y)), y), x cannot be replaced with
-        # anything that has y in it; for f(g(x), g(y)).diff(g(y))
-        # g(x) cannot be replaced with anything that has g(y)
-        syms = {vi: Dummy() for vi in self._wrt_variables
-            if not vi.is_Symbol}
-        wrt = set(syms.get(vi, vi) for vi in self._wrt_variables)
-        forbidden = args[0].xreplace(syms).free_symbols & wrt
-        nfree = new.xreplace(syms).free_symbols
-        ofree = old.xreplace(syms).free_symbols
-        if (nfree - ofree) & forbidden:
-            return Subs(self, old, new)
+def add_Diff( self, var, **kwargs ):
+    df = 0
+    for i, arg in enumerate(self.args):
+        df += arg.Diff( var, **kwargs )
+    return df
+Add.Diff = add_Diff
 
-    viter = ((i, j) for ((i, _), (j, _)) in zip(newargs[1:], args[1:]))
-    if any(i != j for i, j in viter):  # a wrt-variable change
-        # case (2) can't change vars by introducing a variable
-        # that is contained in expr, e.g.
-        # for Derivative(f(z, g(h(x), y)), y), y cannot be changed to
-        # x, h(x), or g(h(x), y)
-        for a in _atomic(self.expr, recursive=True):
-            for i in range(1, len(newargs)):
-                vi, _ = newargs[i]
-                if a == vi and vi != args[i][0]:
-                    return Subs(self, old, new)
-        # more arg-wise checks
-        vc = newargs[1:]
-        oldv = self._wrt_variables
-        newe = self.expr
-        subs = []
-        for i, (vi, ci) in enumerate(vc):
-            if not vi._diff_wrt:
-                # case (3) invalid differentiation expression so
-                # create a replacement dummy
-                print 'created a xi here!'
-                xi = Dummy('xi_%i' % i)
-                # replace the old valid variable with the dummy
-                # in the expression
-                newe = newe.xreplace({oldv[i]: xi})
-                # and replace the bad variable with the dummy
-                vc[i] = (xi, ci)
-                # and record the dummy with the new (invalid)
-                # differentiation expression
-                subs.append((xi, vi))
+def sum_Diff( self, var, **kwargs ):
+    return Sum( self.args[0].Diff( var, **kwargs ), self.args[1] )
+Sum.Diff = sum_Diff
 
-        if subs:
-            # handle any residual substitution in the expression
-            newe = newe._subs(old, new)
-            # return the Subs-wrapped derivative
-            return Subs(Derivative(newe, *vc), *zip(*subs))
+def integral_Diff( self, var, **kwargs ):
+    return Integral( self.args[0].Diff( var, **kwargs ), self.args[1] )
+Integral.Diff = integral_Diff
 
-    # everything was ok
-    return Derivative(*newargs)
+def func_diff( self, var, **kwargs ):
+    return self.diff(var, **kwargs)
+Function.Diff = func_diff
 
-Function.fdiff = new_fdiff
+def Diff( self, var, **kwargs ):
+    return self.Diff(var, **kwargs)
 
-Function.__eval_subs = Function._eval_subs
-def new_eval_subs(self, old, new):
-    print 'new_eval_subs'
-    return Function.__eval_subs(self, old, new)
-
-Function._eval_subs = new_eval_subs
+Idx.name = 'idx'
 
 N = Symbol('N', integer=True)
 i = Idx('i', N+1)
 j = Idx('j', N+1)
 k = Idx('k', N+1)
 
-print type(i)
-
-x = Symbol('x')
+x = Symbol('x', real=True)
 y = Symbol('y')
 t = Symbol('t')
 h = Symbol('h')
-nu = Function('nu')
-u = Function('u')
 
-U = Function('U')
-rho = Function('rho')
-v = Function('v')
-r = Function('r')
-
-class r(Function):
-    _diff_wrt = True
-
-class U(Function):
-    #def __init__(self, arg):
-        #for key, func in Function.__dict__.items():
-            #def _(self, **kwargs):
-                #print key, kwargs
-                #return Function.__dict__[key](self,**kwargs)
-            #self.__dict__[key] = _
-        #Function.__init__(self, arg )
-    def fdiff(self, argindex=1):
-        print 'U.fdiff', argindex
-        ix = argindex - 1
-        A = self.args[ix]
-        return Derivative( self.func(*self.args), A )
+class nu(Function):
+    is_real = True
+    def Diff( self, var, **kwargs ):
+        return S.Zero
+    def diff( self, var ):
+        return S.Zero
+    def _latex(self, *args, **kwargs):
+        return r'\nu_{%s}' % (self.args[0])
 
 class W(Function):
-    _diff_wrt = True
     def fdiff( self, argindex ):
         return Function('W_%s' % argindex )(*self.args)
     
     def _eval_Integral(self, arg):
-        print 'W._eval_Integral', arg
         return S.One
 
     def diff( self, var ):
-        print 'W.diff', 'args=', self.args, 'self=', self, 'var=', var
+        #print 'W.diff', 'args=', self.args, 'self=', self, 'var=', var
         if isinstance( var, Dummy ):
-            print 'Dummy found in W.diff'
+            #print 'Dummy found in W.diff'
             return Derivative( self.func( *self.args ), var )
-        pprint( self.args[0], var )
+        #print 'W.diff', self.args[0], var 
         return self.fdiff(1) * self.args[0].diff( var )
-
-class r(Function):
-    _diff_wrt = True
-    def fdiff(self, argindex=1):
-        if argindex == 1:
-            return Function('v')
-        raiseExepction( 'cannot derivate arg %s' % argindex )
     
-    def diff( self, var ):
-        #print 'r.diff', var, type(var)
+    def Diff( self, var, **kwargs ):
+        return self.fdiff(1) * self.args[0].Diff( var )
+
+class v(Function):
+    def Diff( self, var, **kwargs ):
         if isinstance(var, r):
-            #print 'is r'
+            return S.Zero
+        if isinstance(var, Idx):
+            return S.Zero
+        if isinstance(var, v):
+            #print 'v', self.args, var.args
             if self.args[1] == var.args[1]:
                 return S.One
             return KroneckerDelta( self.args[1], var.args[1] )
-        #print 'r.diff last return'
-        return self.fdiff(1)(*self.args) * self.args[0].diff(var)
+        return self.fdiff(1) * self.args[0].Diff( var )
+    diff = Diff
 
-print '*** kernel derivatives ***'
-pprint( r(t,i).diff( r(t,j) ) )
-pprint( ((x - r(t,i))/h).diff(x) )
-pprint( ((x - r(t,i))/h).diff( r(t,j) ) )
+    def _latex(self, *args, **kwargs):
+        if len(self.args) == 1:
+            return 'v(%s)' % (self.args[0])
+        return 'v_{%s}(%s)' % (self.args[1], self.args[0])
 
-pprint( W( (x - r(t,i))/h ) )
-pprint( W( (x - r(t,i))/h ).diff(x) )
-pprint( W( (x - r(t,i))/h ).diff( r(t,j) ) )
-print '*** done kernel ***'
-exit(0)
+class r(Function):    
+    is_real = True
+    _diff_wrt = True
+    def fdiff(self, argindex=1):
+        if argindex == 1:
+            return v(*self.args)
+        raiseExepction( 'cannot derivate arg %s' % argindex )
+    
+    def Diff( self, var, **kwargs ):
+        if isinstance(var, v):
+            return S.Zero
+        if isinstance(var, r):
+            if self.args[1] == var.args[1]:
+                return S.One
+            return KroneckerDelta( self.args[1], var.args[1] )
+        return self.fdiff(1) * self.args[0].Diff( var )
+    diff = Diff
 
-class v(Function):
-    #@classmethod
-    def as_base_exp(self):
-        #print 'v.as_base_exp'
-        return self, S.One
+    def _latex(self, a):
+        return 'r_{%s}(%s)' % (self.args[1], self.args[0])
 
 class sph_interpolation(Function):
     @classmethod
     def eval( cls, arg, var, index ):
-        print 'sph_interpolation', arg, type(arg)
         i = symbols('i', cls=Idx)
         
         kernel = nu(index)*W( (var-r(t, index))/h )
@@ -255,19 +178,16 @@ class sph_interpolation(Function):
             return Sum( kernel, range )
         
         elif isinstance(arg, FunctionClass):
-            return Sum( arg.func(t, index)*kernel, range)
+            return Sum( arg.func(t, index)*kernel, range )
         
-        return Sum( arg*kernel, range)
+        return Sum( arg*kernel, range )
         print 'unpredicted instance of arg', type(arg)
-    
+
 class rho(Function):
     _diff_wrt = True
     def explicit( self ):
-        print 'rho.expand'
         arg = self.args[0]
         index = Idx( '%s\'' % arg.args[-1], N )
-        
-        print arg, index
         return sph_interpolation( None, arg, index)
     
     def fdiff(self, argindex ):
@@ -278,12 +198,12 @@ class rho(Function):
             return Derivative( self.func(*self.args), var )
         return self.fdiff(1) * self.args[0].diff( var )
 
-pprint( rho(x) )
-pprint( rho(r(t,j)) )
-pprint( sph_interpolation( None, r(t,j), i) )
-print 'done here'
-#pprint( rho(r(t,j)).explicit() )
-#exit(0)
+    def Diff(self, var ):
+        if isinstance(self.args[0], r):
+            arg = self.args[0]
+            index = Idx( '%s_1' % arg.args[-1], N+1 )
+            return sph_interpolation( None, arg, index ).Diff( var )
+        return self.fdiff(1) * self.args[0].Diff( var )
 
 class Monaghan(Function):
     @classmethod
@@ -291,10 +211,19 @@ class Monaghan(Function):
         innerIndex = symbols('%s\'' % index.label, cls=Idx)
         if arg is None:
             return sph_interpolation( 1/rho(r(t,index)), var, index )
-        pprint( arg )
+        #pprint( arg )
         arg = arg.replace( x, r(t,index) )
-        pprint( arg )
+        #pprint( arg )
         return sph_interpolation( arg/rho(r(t,index)), var, index )
+
+class FirstOrder(Function):
+    @classmethod
+    def eval(cls, arg, var, index):
+        innerIndex = symbols('%s\'' % index.label, cls=Idx)
+        if arg is None:
+            return sph_interpolation( 1/rho(r(t,index)), var, index )
+        arg = arg.replace( x, r(t,index) )
+        return sph_interpolation( arg, var, index )/rho(var)
     
 def explicit( expr, level=0 ):
     if hasattr( expr, 'explicit' ):
@@ -306,101 +235,91 @@ def explicit( expr, level=0 ):
     newargs = tuple( explicit(arg, level=level+1) for arg in expr.args )
     return expr.func(*newargs)
 
-#pprint( Monaghan(None,x,i) )
-#pprint( Monaghan(rho(x),x,i) )
-#pprint( Monaghan(v(t,x),x,i) )
-#pprint( explicit( Monaghan(v(t,x),x,i) ) )
-#exit(0)
-
-#class D4(Function):
-    #@classmethod
-    #def eval(cls, arg):
-        #print 'SPH.eval', cls, arg
-        #return diff( arg, t ) - diff( arg, x )
-
-#class Dmat(Function):
-    #@classmethod
-    #def eval(cls, arg):
-        #print 'eval', cls, arg
-        #return diff( arg, t ) + diff( v*arg, x )
-    #@classmethod
-    #def as_base_exp(cls, arg=None):
-        #print 'as_base_exp', cls, arg
-
-#class Dmat4(Function):
-    #@classmethod
-    #def eval(cls, arg):
-        #print 'SPH.eval', cls, arg
-        #return diff( gamma*arg, t ) + diff( v*arg, x )
-    
 class Conservation_Eq(Function):
     @classmethod
     def eval(cls, arg):
-        print 'SPH.eval', cls, arg
         eq = Dmat( arg )
         return solve( eq, v(t, i) )
 
 class Sum(Sum):
     def _eval_Integral(self, arg):
-        print 'sum _eval_Integral', arg, self.function
         return Sum( Integral( self.function, arg ).doit(), (i,0,N) )
     
     def diff(self, var):
-        print 'Sum.diff', var
-        pprint( self.args[0], var )
-        pprint( self.args[0].diff(var) )
+        #pprint( self.args[0], var )
+        #pprint( self.args[0].diff(var) )
         return Sum( self.args[0].diff(var), self.args[1] )
     
 class EulerLagrange_Eq(Function):
     @classmethod
-    def eval(cls, arg, var, dvar):
-        print 'EL.eval', cls, arg, var, dvar
-        eq = arg.diff( var )
-        
+    def eval(cls, arg, var, dvar, **kwargs ):
+        eq = arg.Diff( var ) - arg.Diff( dvar ).Diff(t)
         return eq
-
-#term = Sum( rho(r(t,i)).diff(r(t,j)), (i,0,N)).doit()
+        #return simplify( eq.doit() )
 
 class epsilon(Function):
 
     def fdiff( self, argindex ):
         return Function('epsilon_%s' % argindex )(*self.args)
     
-    def diff( self, var ):
-        print 'epsilon.diff', 'args=', self.args, 'self=', self, 'var=', var
-        if isinstance(var, Dummy):
-            return Derivative( self.func(*self.args), var )
-        return self.fdiff(1) * self.args[0].diff(var)
+    def Diff( self, var, implicit=True, **kwargs ):
+        fdiff = None
+        arg = self.args[0]
+        if isinstance(arg, Function):
+            fdiff = Function('epsilon_%s' % arg.func )(*self.args)
+        else:
+            fdiff = self.fdiff(1)
+        return fdiff * self.args[0].Diff( var )
 
-print
-print '*** we are here!!! ***'
-pprint( epsilon( r(t,i) ).diff( r(t,j) ) )
-pprint( epsilon( rho( rho( r(t,i) ) ) ).diff( r(t,j) ) )
-pprint( ( epsilon( x )/rho( x ) ).diff( x ) )
-pprint( ( epsilon( r(t,i) )/rho( r(t,i) ) ).diff( r(t,j) ) )
+#eq( epsilon( r(t,i) ).Diff( r(t,j) ) )
+##eq( Derivative( epsilon( rho( rho( r(t,i) ) ) ), r(t,j) ), Diff( epsilon( rho( rho( r(t,i) ) ) ), r(t,j) ) )
+#epsilon_over_rho = lambda _: epsilon(rho(_))/rho(_)
+#eq( Derivative( epsilon_over_rho( x ), x ), ( epsilon( rho( x ))/rho( x ) ).Diff( x ) )
+#eq( Derivative( epsilon( r(t,i) )/rho( r(t,i) ), r(t,j) ), ( epsilon( r(t,i) )/rho( r(t,i) ) ).Diff( r(t,j) ) )
 
-print type( epsilon( x )/rho( x ) )
-#exit(0)
+#eq( epsilon( r(t,i) ).Diff(t) )
+#eq( (epsilon( r(t,i) )/rho(r(t,i))).Diff(t) )
 
-print 'de/dt'
-pprint( epsilon( r(t,i) ).diff(t) )
-pprint( (epsilon( r(t,i) )/rho(r(t,i))).diff(t) )
+#eq( Diff( epsilon( r(t,i) ), t ) )
 
-print 'de/dt'
-pprint( diff( epsilon( r(t,i) ), t ) )
-print 'done'
+par('All calculations here are performed automatically SymPy')
+section( 'kernel' )
+par('The Kernel function is defined by the following properties. Its integral is')
+eq( integrate( W((x - r(t,i)/h)), x ) )
+par('Its derivative in respect to $x$')
+eq( Derivative( W((x - r(t,i))/h), x ), W( (x - r(t,i))/h ).Diff( x ) ) 
+par('Its derivative in respect to $r(t,j)$')
+eq( Derivative( W(Abs(x - r(t,i))/h), r(t,j) ), W( (x - r(t,i))/h ).Diff( r(t,j) ) ) 
 
-LagrangeanDensity = Monaghan( epsilon(x), x, i )
-print '####LagrangeanDensity'
-pprint( LagrangeanDensity )
+section('Interpolation')
+par('the interpolation reference is')
+eq( rho(x), sph_interpolation( None, x, i) )
+par('and its derivative is')
+eq( Derivative( rho(x), x ), simplify( sph_interpolation( None, x, i).Diff( x ).doit() ) )
+par('on the other hand, when taking the variational approach one gets')
+eq( Derivative( rho( r(t,k) ), r(t,j) ), simplify( sph_interpolation( None, r(t,k), i).Diff( r(t,j) ).doit() ) )
+
+_L = Function('\mathcal{L}')
+L = Function('L')
+
+section('Monaghan recipe')
+par('The Lagrangean density is')
+eq( _L(x,t), S.Half*rho(x)*v(x)**2 - rho(x)*epsilon(rho(x)) )
+
+LagrangeanDensity = Monaghan( S.Half*rho(x)*v(t,i)**2 - rho(x)*epsilon(rho(x)), x, i )
+par('Using the Monaghan recipe it transcribes into with the transformation of $v(x)$ into $v(t,i)$')
+eq( _L(x,t), simplify(LagrangeanDensity) )
 Lagrangean = Integral( LagrangeanDensity, x )
-print '###########Lagrangean'
-pprint( Lagrangean )
-pprint( Lagrangean.diff( r(t,j) ) )
-print '########EulerLagrange'
-pprint( EulerLagrange_Eq( Lagrangean, r(t,j), v(t,j) ) )
+par('The integrated Lagrangean density is')
+eq( L(x,t), simplify(Lagrangean) )
+par('The variation in respect to r')
+eq( Derivative( L(x, t), r(t,j) ), simplify( Lagrangean.Diff( r(t,j) ).doit() ) )
+par('The variation in respect to v')
+eq( Derivative( L(x, t), v(t,j) ), simplify( Lagrangean.Diff( v(t,j) ).doit() ) )
+par('and its time derivative')
+eq( simplify( Lagrangean.Diff( v(t,j) ).Diff(t).doit() ) )
+par('Finally the Euler-Lagrange relation')
+eq( 0, simplify( EulerLagrange_Eq( Lagrangean, r(t,j), v(t,j) ).doit() ) )
 
-#print '########d(r[i], r[j])'
-#pprint( r(t,j).diff( r(t,i) ) )
-exit(0)
-EulerLagrange_Eq( LagrangeanDensity, r, a )
+open('output.tex','a').write( r'\end{document}' + '\n' )
+convert2pdf()
