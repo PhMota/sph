@@ -8,16 +8,62 @@ def cspline(h,dim):
         np.vectorize( lambda q: K* ( 0 if q > 2 else ( 6*.25*(2-q) if q > 1 else -3 + 6*.75*q ) ) )
         )
 
+class Kernel:
+    def __init__():
+        self.h = None
+        self.mode = None
+        self.dimension = None
+        self.r = None
+        self.W = None
+    
+    def set_dimension( d ):
+        self.dimension = d
+        return
+    
+    def set_positions( r ):
+        self.r = r
+        return
+    
+    def set_length( h ):
+        self.h = h
+        self.normalization = self.compute_normalization()
+        return
+    
+    def set_mode( mode ):
+        if mode is 'cspline':
+            self.mode = mode
+            self.W = self.__cspline__
+            return
+        raise Exception(('mode "%s" is not defined' % mode)
+            
+    
+    def compute_normalization():
+        if self.mode is 'cspline':
+            return ( 2./3, 10*np.pi/7, 1./np.pi )[self.dimension-1] / self.h**self.dimension
+        return None
+    
+    def __cspline__( q ):
+        o = np.zeros_like(q)
+        less_than_1 = q < 1
+        between_1_and_2 = np.all( [q >= 1, q < 2], axis=0 )
+        o[less_than_1] = 1 - 1.5*q[less_than_1]**2+.75*q[less_than_1]**3
+        o[between_1_and_2] = .25*(2-q[between_1_and_2])**3
+        return normalization*o
+        
+
 def generate_kernel_function(mode='cspline', length=.1, dimension=1):
     inv_length = 1./length
-    if mode is 'spline':
+    if mode is 'cspline':
         normalization = ( 2./3, 10*np.pi/7, 1./np.pi )[dimension-1] * inv_length**dimension
         def func( x, r ):
             q = (r - x)*inv_length
-            q = np.where( q < 1, q, 1 - 1.5*q**2 + .75*q**3 )
-            q = np.where( np.all( [q >= 1, q<2] ) , q, .25*(2-q)**3 )
-            q = np.where( q > 2, q, 0 )
-            return normalization*q
+            q = np.sqrt( np.einsum('ij,ij->i', q, q) )
+            o = np.zeros_like(q)
+            less_than_1 = q < 1
+            between_1_and_2 = np.all( [q >= 1, q < 2], axis=0 )
+            o[less_than_1] = 1 - 1.5*q[less_than_1]**2+.75*q[less_than_1]**3
+            o[between_1_and_2] = .25*(2-q[between_1_and_2])**3
+            return normalization*o
         return func
     raise Exception('mode "%s" is not defined' % mode)
 
