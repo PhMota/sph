@@ -8,6 +8,19 @@ def cspline(h,dim):
         np.vectorize( lambda q: K* ( 0 if q > 2 else ( 6*.25*(2-q) if q > 1 else -3 + 6*.75*q ) ) )
         )
 
+def generate_kernel_function(mode='cspline', length=.1, dimension=1):
+    inv_length = 1./length
+    if mode is 'spline':
+        normalization = ( 2./3, 10*np.pi/7, 1./np.pi )[dimension-1] * inv_length**dimension
+        def func( x, r ):
+            q = (r - x)*inv_length
+            q = np.where( q < 1, q, 1 - 1.5*q**2 + .75*q**3 )
+            q = np.where( np.all( [q >= 1, q<2] ) , q, .25*(2-q)**3 )
+            q = np.where( q > 2, q, 0 )
+            return normalization*q
+        return func
+    raise Exception('mode "%s" is not defined' % mode)
+
 def cspline_opt(h,dim):
     K = (2./3, 10*np.pi/7, 1./np.pi)[dim-1]/h**dim
     def d0( q ):
