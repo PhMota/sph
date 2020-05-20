@@ -1046,7 +1046,6 @@ class SimulationApp(Gtk.Window):
 
 norm = lambda x, loc=0, scale=1.: exp(-.5*(x-loc)**2/scale**2)/sqrt(2*pi)/scale
 
-import itertools
 def array_to_int( r, h=1 ):
     return np.rint(r/h).astype(int)
     
@@ -1054,6 +1053,7 @@ def array_to_int_tuple( r, h=1):
     return tuple(array_to_int(r,h))
 
 def make_link_list( r, h, d=1, radius=2 ):
+    import itertools
     n = array_to_int(r, h)
     linklist = {}
     shifts = range(-radius,radius+1)
