@@ -1,12 +1,25 @@
 import numpy as np
 
-def cspline(h,dim):
-    K = (2./3, 10*np.pi/7, 1./np.pi)[dim-1]/h**dim
-    return (
-        np.vectorize( lambda q: K* ( 0 if q > 2 else ( .25*(2-q)**3 if q > 1 else 1 - 1.5*q**2+.75*q**3 ) ) ), 
-        np.vectorize( lambda q: K* ( 0 if q > 2 else ( -3*.25*(2-q)**2 if q > 1 else - 3*q+ 3*.75*q**2 ) ) ),
-        np.vectorize( lambda q: K* ( 0 if q > 2 else ( 6*.25*(2-q) if q > 1 else -3 + 6*.75*q ) ) )
-        )
+def cspline_unormalized( q ):
+    o = np.zeros_like(q)
+    less_than_1 = q < 1
+    q_1 = q[less_than_1]
+    between_1_and_2 = np.all( [q >= 1, q < 2], axis=0 )
+    q_1_2 = q[between_1_and_2]
+    o[less_than_1] = 1 - 1.5*q_1**2+.75*q_1**3
+    o[between_1_and_2] = .25*(2-q_1_2)**3
+    return o
+
+def cspline( dist, dim, h ):
+    return ( 2./3, 10*np.pi/7, 1./np.pi )[dim-1] / h**dim * cspline_unormalized( dist/h )
+
+#def cspline(h,dim):
+    #K = (2./3, 10*np.pi/7, 1./np.pi)[dim-1]/h**dim
+    #return (
+        #np.vectorize( lambda q: K* ( 0 if q > 2 else ( .25*(2-q)**3 if q > 1 else 1 - 1.5*q**2+.75*q**3 ) ) ), 
+        #np.vectorize( lambda q: K* ( 0 if q > 2 else ( -3*.25*(2-q)**2 if q > 1 else - 3*q+ 3*.75*q**2 ) ) ),
+        #np.vectorize( lambda q: K* ( 0 if q > 2 else ( 6*.25*(2-q) if q > 1 else -3 + 6*.75*q ) ) )
+        #)
 
 class Kernel:
     def __init__():
@@ -15,6 +28,7 @@ class Kernel:
         self.dimension = None
         self.r = None
         self.W = None
+        self.normalization = None
     
     def set_dimension( d ):
         self.dimension = d
@@ -34,10 +48,10 @@ class Kernel:
             self.mode = mode
             self.W = self.__cspline__
             return
-        raise Exception(('mode "%s" is not defined' % mode)
+        raise Exception('mode "%s" is not defined' % mode)
             
     
-    def compute_normalization():
+    def compute_normalization(self):
         if self.mode is 'cspline':
             return ( 2./3, 10*np.pi/7, 1./np.pi )[self.dimension-1] / self.h**self.dimension
         return None

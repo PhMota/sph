@@ -1,4 +1,3 @@
-# coding: utf-8
 from __future__ import print_function
 
 import numpy as np
@@ -21,198 +20,17 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf, GObject, GLib
 
-def get_base(a):
-    if isinstance(a, Pow):
-        return a.base
-    else:
-        return a
+import datetime
 
-def get_exp(self):
-    if isinstance(self, Pow):
-        return self.exp
-    else:
-        return 1
-    
-class Base:
-    def __init__(self, a):
-        print('base init')
-
-    def __neg__(self):
-        return Neg(self)
-    
-    def __add__(self, a):
-        result = None
-        if self == 0:
-            result = a
-        elif a == 0:
-            result = self
-        elif a == -self:
-            return 0
-        elif isinstance(self, Add):
-            for elem in self.args:
-                if elem == -a:
-                    a = None
-                    self.args.remove(elem)
-                    print('rem', self)
-                    result = self
-            if not a is None:
-                self.args.add(a)
-                print('add',self)
-                result = self
-        elif isinstance(a, Add):
-            result = a + self
-        else:
-            result = Add( (self, a) )
-        return result
-    
-    __radd__ = __add__
-    
-    def __sub__(self, a):
-        return self + (-a)
-    
-    def __mul__(self, a):
-        print('mul',self,a)
-        if self == 1:
-            return a
-        elif a == 1:
-            return self
-        elif a == 0:
-            return 0
-        elif isinstance(self, Mul):
-            for elem in self.args:
-                if get_base(elem) == get_base(a):
-                    print('same base', self, a, get_exp(elem), get_exp(a), get_exp(elem) + get_exp(a) )
-                    new_elem = elem**( get_exp(elem) + get_exp(a) )
-                    print('new_elem', new_elem)
-                    self.args.remove(elem)
-                    print(self)
-                    return self*new_elem
-            self.args.add(a)
-            return self
-        elif isinstance(a, Mul):
-            return a*self
-        return Mul( (self, a) )
-    
-    __rmul__ = __mul__
-    
-    def __pow__(self,a):
-        if a == 0:
-            return 1
-        elif a == 1:
-            return self
-        elif isinstance(self, Pow):
-            print('pow', self, a)
-            self.exp = self.exp + a
-            print('pow2', self)
-            return self
-        return Pow( self, a )
-    
-    def __div__(self,a):
-        return self * a**(-1)
-
-
-class Symbol(Base):
-    def __init__( self, name ):
-        self.name = name
-    def __str__( self ):
-        return self.name
-    
-class Neg(Base):
-    def __init__(self, a):
-        self.a = a
-    
-    def __str__(self):
-        return '-%s' % (self.a)
-    
-class Add(Base):
-    def __init__( self, args ):
-        self.args = set(args)
-    def __str__(self):
-        return '[%s]' % ' + '.join( map( lambda _: _.__str__(), self.args) )
-
-class Mul(Base):
-    def __init__( self, args ):
-        self.args = set(args)
-    def __str__(self):
-        return '[%s]' % '*'.join( map( lambda _: _.__str__(), self.args) )
-    def get_bases(self):
-        return [ get_base(elem) for elem in self.args ]
-
-class Pow(Base):
-    def __init__(self, a, b ):
-        self.base, self.exp = self.eval(a,b)
-    def eval( self, a, b ):
-        return a, b
-    def __str__( self ):
-        return '(%s)^(%s)' % (self.base, self.exp)
+class Timer:
+    def __init__(self, msg='elapsed'):
+        self.msg = msg
         
-class Div(Base):
-    def __init__(self, a, b ):
-        self.numerator = a
-        self.denominator = b
-        self.eval()
+    def __enter__(self):
+        self.start = datetime.datetime.now()
     
-    def eval( self ):
-        print( self.args[0].__class__ )
-        print( isinstance(self.args[0], Base) )
-    
-    def __str__( self ):
-        return '(%s/%s)' % (self.args[0], self.args[1])
-    
-class Function(Base):
-    pass
-
-class Operator(Base):
-    pass
-
-
-class Expression(Base):
-    def __init__( self, op, args ):
-        self.op = op
-        self.args = args
-    
-    def __str__( self ):
-        return '(%s/%s)' % (self.args[0], self.args[1] )
-
-class d(Base):
-    def __init__(self, a ):
-        self.a = self.eval(a)
-    
-    def eval( self, a ):
-        if isinstance( a, Symbol):
-            return a
-        elif isinstance(a, Add):
-            return Add( [ d(elem) for elem in a.args ] )
-        elif isinstance(a, Mul):
-            return Add( [ d(j)*a/j for j in list(a.args) ] )
-        elif isinstance(a, Pow):
-            return a.exp * a.base **(a.exp-1) * d(a.base)
-        else:
-            raise Exception('no derivative defined for %s' % a.__class__ )
-    
-    def __str__(self):
-        if isinstance(self.a, Symbol):
-            return 'd(%s)' % self.a
-        else:
-            return self.a.__str__()
-    
-
-#Lagrangean = Symbol('L')
-#a = Symbol('a')
-#E = Symbol('E')
-#G = Symbol('G')
-#print( 0+E+G+G-G )
-#print( d(E+G+G) )
-#exit(0)
-
-#gamma = Symbol(r'\gamma')
-#print(E/gamma)
-#print( d(E/gamma) )
-#exit(0)
-#print( SymbolSum( a, (0,N), E[a]/gamma[a] ) )
-#Lagrangean.assign( SymbolSum( a, (0,N), E[a]/gamma[a] ) )
-#print(Lagrangean)
-#exit(0)
+    def __exit__(self, type, value, traceback):
+        print( self.msg, (datetime.datetime.now()-self.start).total_seconds(), 's' )
 
 #def SL2(fp,fv):
     #return lambda p, q, dt: ( lambda dp1: (
@@ -1253,21 +1071,24 @@ def make_link_list( r, h, d=1, radius=2 ):
 def interpolation( r, h, W, x, f ):
     return np.sum( f*W( x, r, h ) )
 
-def generate_IC(mode='random', dimension=1, N=100):
+def generate_IC(mode='random', dimension=1, number_of_fluid_elements=100):
     modes = {'random': 'generate random r and u'}
     if mode is 'random':
-        r = np.random.rand(d*N)
-        u = np.random.rand(d*N)
-        r = np.reshape(r,(-1,d))
-        u = np.reshape(u,(-1,d))
+        r = np.random.rand(dimension * number_of_fluid_elements)
+        u = np.random.rand(dimension * number_of_fluid_elements)
+        r = np.reshape(r,(-1,dimension))
+        u = np.reshape(u,(-1,dimension))
         return r, u
-    raise Exception( '''IC mode "%s" not defined\ndefined modes are %s''' % (mode, modes ) )
+    raise Exception( '''IC mode "%s" not defined\ndefined modes are %s''' % (mode, modes) )
 
-if __name__ == '__main__':
-    print(dir(kernel))
+def run_app():
+    app = SimulationApp()
+    Gtk.main()
+
+def run_simulation():
     h = .2
     d = 3
-    r, u = generate_IC(mode='random', dimension=d, N=1000)
+    r, u = generate_IC(mode='random', dimension = d, number_of_fluid_elements = 1000)
     kernel_function = kernel.generate_kernel_function(mode='cspline', length=h, dimension=d)
     print( kernel_function(r[0], r[:10]) )
     print( r[0], r, 'r' )
@@ -1275,16 +1096,7 @@ if __name__ == '__main__':
     #print( 'list index 0', link_list[ array_to_int_tuple(r[0],h) ] )
     W = kernel.derivatives('qspline', d)
     print(interpolation( r, h, W[0], r[0], 1 ))
-    exit(0)
-    
-    app = SimulationApp()
-    Gtk.main()
-    exit(0)
-    #print(sys.argv)
-    #if len(sys.argv) > 1:
-        #plotOutputs( sys.argv[-1] )
-        #exit(0)
-    
+ 
     L = 1.
     u_0 = 1.
     N = 251
@@ -1319,7 +1131,75 @@ if __name__ == '__main__':
 
     system.set_integrator( TimeIntegrators.Sympletic.RungeKutta4 )
     system.integrate( 'simulationv%s.dat'%v )
+
+def dist( a, b ):
+    return np.sqrt( np.sum( (a-b)**2, axis=-1 ) )
+
+def test_link_list():
+    h = .2
+    d = 3
+    number_of_fluid_elements = int(1e4)
+    positions, velocities = generate_IC( mode='random', dimension=d, number_of_fluid_elements = number_of_fluid_elements )
+    print( positions.shape )
+    kernel_function = kernel.generate_kernel_function(mode='cspline', length=h, dimension=d)
+    print( 'kernel_function(r[0], r[:10])', kernel_function( positions[0], positions[:10]) )
+    print( 'r', positions[0], positions )
+    link_list = make_link_list( positions, h, d )
+    #print( 'list index 0', link_list[ array_to_int_tuple( positions[0], h ) ] )
+
+    test_position = positions[0]
+    #print( 'W(r[0] - r)', kernel.cspline( dist(test_position[None,:], positions), dim = d, h = h ) )
+    indexes = link_list[ array_to_int_tuple( test_position, h) ]
+    indexes_not_in_list = sorted(list(set(range(len(positions))) - set(indexes)))
+    #for index in indexes_not_in_list[:10]:
+        #print( index, kernel.cspline( dist(test_position, positions[index]), dim = d, h = h ) )
+    with Timer('cumvalue') as t:
+        cumvalue = 0
+        for index in indexes:
+            value = kernel.cspline( dist(test_position, positions[index]), dim = d, h = h )
+            cumvalue += value
+        print( cumvalue )
+    with Timer('contribution from not listed') as t:
+        dists = dist(test_position, positions[indexes_not_in_list])
+        print( np.sum( kernel.cspline( dists, dim = d, h = h ) ) )
+    with Timer('contribution from listed') as t:
+        dists = dist(test_position, positions[indexes])
+        print( np.sum( kernel.cspline( dists, dim = d, h = h ) ) )
+    with Timer('contribution from all') as t:
+        dists = dist(test_position, positions)
+        print( np.sum( kernel.cspline( dists, dim = d, h = h ) ) )
     
+    #with Timer('all') as t:
+        #dists = dist(positions[None,:,None], positions[:,None,None])
+        #ret = np.sum( kernel.cspline( dists, dim = d, h = h ), axis=0 )
+        #print( ret[:10], ret.shape )
+    #with Timer('segmented') as t:
+        #ret = np.zeros( positions.shape[0] )
+        #for i, position in enumerate(positions):
+            #dists = dist( position, positions )
+            #ret_ = np.sum( kernel.cspline( dists, dim = d, h = h ), axis=0 )
+            #ret[i] = ret_
+        #print( ret[:10], ret.shape )
+    with Timer('listed') as t:
+        ret = np.zeros( positions.shape[0] )
+        link_list = make_link_list( positions, h, d )
+        def compute( i, pos ):
+            indexes = link_list[ array_to_int_tuple( pos, h) ]
+            dists = dist( pos, positions[indexes] )
+            return np.sum( kernel.cspline( dists, dim = d, h = h ), axis=0 )
+        ret = map( compute, enumerate(positions) )
+        print( ret[:10], ret.shape )
+    with Timer('listed') as t:
+        ret = np.zeros( positions.shape[0] )
+        link_list = make_link_list( positions, h, d )
+        for i, position in enumerate(positions):
+            indexes = link_list[ array_to_int_tuple( position, h) ]
+            dists = dist( position, positions[indexes] )
+            ret[i] = np.sum( kernel.cspline( dists, dim = d, h = h ), axis=0 )
+        print( ret[:10], ret.shape )
+    
+if __name__ == '__main__':
+    test_link_list()
     exit(0)
 
 exit(0)
