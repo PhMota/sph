@@ -30,19 +30,15 @@ class Timer:
         self.start = datetime.datetime.now()
     
     def __exit__(self, type, value, traceback):
-        print( self.msg, (datetime.datetime.now()-self.start).total_seconds(), 's' )
-
-#def SL2(fp,fv):
-    #return lambda p, q, dt: ( lambda dp1: (
-                             #lambda dq1: ( dp1/2 + dt/2*fp( p+dp1/2, q+dq1 ), dq1 ) 
-                             #) ( dt * fv( p+dp1/2, q ) ) #dq1
-                             #) ( dt * fp(p,q) ) #dp1
-
-#def SEuler(fp,fv):
-    #return lambda p, q, dt: ( lambda dp1: (
-                             #lambda dq1: ( dp1, dq1 ) 
-                             #) ( dt * fv( p+dp1, q ) ) #dq1
-                             #) ( dt * fp(p,q) ) #dp1
+        s = [ self.msg ]
+        s += [ '%ss' % self.__call__() ]
+        if value:
+            s += [ '%s'%type ]
+            s += [ '%s'%value ]
+        print( ' '.join(s) )
+    
+    def __call__(self, N=1):
+        return (datetime.datetime.now() - self.start).total_seconds()/N
 
 class TimeIntegrators:
     @staticmethod
@@ -1046,27 +1042,76 @@ class SimulationApp(Gtk.Window):
 
 norm = lambda x, loc=0, scale=1.: exp(-.5*(x-loc)**2/scale**2)/sqrt(2*pi)/scale
 
+import itertools
 def array_to_int( r, h=1 ):
     return np.rint(r/h).astype(int)
     
 def array_to_int_tuple( r, h=1):
     return tuple(array_to_int(r,h))
 
-def make_link_list( r, h, d=1, radius=2 ):
-    import itertools
-    n = array_to_int(r, h)
-    linklist = {}
-    shifts = range(-radius,radius+1)
-    listofshifts = [ shifts for i in range(d) ]
-    nshifts = tuple(itertools.product(*listofshifts) )
+#def make_link_list( r, h, d=1, radius=2 ):
+    #n = array_to_int(r, h)
+    #linklist = {}
     
-    for i,ni in enumerate(n):
-        for ns in nshifts:
+    #shifts = range(-radius,radius+1)
+    #listofshifts = [ shifts for i in range(d) ]
+    #nshifts = tuple(itertools.product(*listofshifts) )
+    
+    #for i,ni in enumerate(n):
+        #for ns in nshifts:
+            #try:
+                #linklist[ tuple(ni + ns) ].append(i)
+            #except:
+                #linklist[ tuple(ni + ns) ] = [i]
+    #return linklist
+
+def get_relative_bin_shifts( d, radius ):
+    shifts = range(-radius,radius+1)
+    list_of_shifts = [ shifts for i in range(d) ]
+    return tuple(itertools.product(*list_of_shifts) )
+
+def make_link_list( positions, h, d=1, radius=2 ):
+    particle_bins = array_to_int( positions, h)
+    indexes_around_bin = {}
+    
+    relative_bin_shifts = get_relative_bin_shifts( d, radius )
+    
+    for particle_index, particle_bin in enumerate( particle_bins ):
+        for relative_bin_shift in relative_bin_shifts:
+            bin = tuple( particle_bin + relative_bin_shift )
             try:
-                linklist[ tuple(ni + ns) ].append(i)
-            except:
-                linklist[ tuple(ni + ns) ] = [i]
-    return linklist
+                indexes_around_bin[bin].append( particle_index )
+            except KeyError:
+                indexes_around_bin[bin] = [ particle_index ]
+    
+    lengths = [ len(v) for k, v in indexes_around_bin.items() ]
+    print( 'link list', max(lengths), np.median(lengths), len(lengths) )
+    return indexes_around_bin
+
+
+def make_link_list2( positions, h, d=1, radius=2 ):
+    particle_bins = array_to_int( positions, h)
+    
+    relative_bin_shifts = get_relative_bin_shifts( d, radius )
+    
+    indexes_bin = {}
+    for particle_index, particle_bin in enumerate( particle_bins ):
+        in_bin = tuple( particle_bin )
+        try:
+            indexes_bin[in_bin]['in'].append( particle_index )
+        except KeyError:
+            indexes_bin[in_bin] = {'in': [ particle_index ], 'around': [] }
+
+        for relative_bin_shift in relative_bin_shifts:
+            around_bin = tuple( particle_bin + relative_bin_shift )
+            try:
+                indexes_bin[around_bin]['around'].append( particle_index )
+            except KeyError:
+                indexes_bin[around_bin] = {'in': [], 'around': [ particle_index ]}
+
+    lengths = [ len(v['around']) for k, v in indexes_bin.items() ]
+    print( 'link list', max(lengths), np.median(lengths), len(lengths) )
+    return indexes_bin
 
 def interpolation( r, h, W, x, f ):
     return np.sum( f*W( x, r, h ) )
@@ -1135,67 +1180,78 @@ def run_simulation():
 def dist( a, b ):
     return np.sqrt( np.sum( (a-b)**2, axis=-1 ) )
 
+def get_neighbor_positions( particle_position, all_positions, link_list, h ):
+    neighbor_indexes = link_list[ array_to_int_tuple( particle_position, h) ]
+    return all_positions[ neighbor_indexes ]
+    
+def apply_sum_map( positions, h, d ):
+    ret = np.zeros( len(positions) )
+    link_list = make_link_list( positions, h, d )
+    def compute( pos ):
+        dists = dist( pos, get_neighbor_positions( pos, positions, link_list, h ) )
+        return np.sum( kernel.cspline( dists, dim = d, h = h ), axis=0 )
+    return np.array( map( compute, positions ) )
+
+def apply_sum_for( positions, h, d ):
+    ret = np.zeros( len(positions) )
+    link_list = make_link_list( positions, h, d )
+    for i, position in enumerate(positions):
+        dists = dist( position, get_neighbor_positions( position, positions, link_list, h ) )
+        ret[i] = np.sum( kernel.cspline( dists, dim = d, h = h ), axis=0 )
+    return ret
+
+def apply_sum_list( positions, h, d ):
+    ret = np.zeros( len(positions) )
+    link_list = make_link_list2( positions, h, d )
+    for bin_indexes in link_list.values():
+        dists = dist( positions[ bin_indexes['in'] ][None,:,:], positions[ bin_indexes['around'] ][:,None,:] )
+        ret[ bin_indexes['in'] ] = np.sum( kernel.cspline( dists, dim = d, h = h ), axis=0 )
+    return ret
+
 def test_link_list():
-    h = .2
+    h = .05
     d = 3
-    number_of_fluid_elements = int(1e4)
+    number_of_fluid_elements = int(2e4)
     positions, velocities = generate_IC( mode='random', dimension=d, number_of_fluid_elements = number_of_fluid_elements )
     print( positions.shape )
     kernel_function = kernel.generate_kernel_function(mode='cspline', length=h, dimension=d)
-    print( 'kernel_function(r[0], r[:10])', kernel_function( positions[0], positions[:10]) )
-    print( 'r', positions[0], positions )
-    link_list = make_link_list( positions, h, d )
-    #print( 'list index 0', link_list[ array_to_int_tuple( positions[0], h ) ] )
+    with Timer('first element brute force') as t:
+        dists = dist( positions[:10][None,:,:], positions[:,None,:] )
+        #print( np.sum( kernel_function( positions[:10][None,:,:], positions[:,None,:]), axis = 0) )
+        print( np.sum( kernel.cspline( dists, dim = d, h = h ), axis=0 ) )
 
-    test_position = positions[0]
-    #print( 'W(r[0] - r)', kernel.cspline( dist(test_position[None,:], positions), dim = d, h = h ) )
-    indexes = link_list[ array_to_int_tuple( test_position, h) ]
-    indexes_not_in_list = sorted(list(set(range(len(positions))) - set(indexes)))
-    #for index in indexes_not_in_list[:10]:
-        #print( index, kernel.cspline( dist(test_position, positions[index]), dim = d, h = h ) )
-    with Timer('cumvalue') as t:
-        cumvalue = 0
-        for index in indexes:
-            value = kernel.cspline( dist(test_position, positions[index]), dim = d, h = h )
-            cumvalue += value
-        print( cumvalue )
-    with Timer('contribution from not listed') as t:
-        dists = dist(test_position, positions[indexes_not_in_list])
-        print( np.sum( kernel.cspline( dists, dim = d, h = h ) ) )
-    with Timer('contribution from listed') as t:
-        dists = dist(test_position, positions[indexes])
-        print( np.sum( kernel.cspline( dists, dim = d, h = h ) ) )
-    with Timer('contribution from all') as t:
-        dists = dist(test_position, positions)
-        print( np.sum( kernel.cspline( dists, dim = d, h = h ) ) )
+    #with Timer('make link list') as t:
+        #link_list = make_link_list( positions, h, d )
+
+    #with Timer('cumvalue') as t:
+        #cumvalue = 0
+        #for index in indexes:
+            #value = kernel.cspline( dist(test_position, positions[index]), dim = d, h = h )
+            #cumvalue += value
+        #print( cumvalue )
+        
+    #with Timer('contribution from not listed') as t:
+        #dists = dist(test_position, positions[indexes_not_in_list])
+        #print( np.sum( kernel.cspline( dists, dim = d, h = h ) ) )
+        
+    #with Timer('contribution from listed') as t:
+        #dists = dist(test_position, positions[indexes])
+        #print( np.sum( kernel.cspline( dists, dim = d, h = h ) ) )
+        
+    #with Timer('contribution from all') as t:
+        #dists = dist(test_position, positions)
+        #print( np.sum( kernel.cspline( dists, dim = d, h = h ) ) )
     
-    #with Timer('all') as t:
-        #dists = dist(positions[None,:,None], positions[:,None,None])
-        #ret = np.sum( kernel.cspline( dists, dim = d, h = h ), axis=0 )
-        #print( ret[:10], ret.shape )
-    #with Timer('segmented') as t:
-        #ret = np.zeros( positions.shape[0] )
-        #for i, position in enumerate(positions):
-            #dists = dist( position, positions )
-            #ret_ = np.sum( kernel.cspline( dists, dim = d, h = h ), axis=0 )
-            #ret[i] = ret_
-        #print( ret[:10], ret.shape )
-    with Timer('listed') as t:
-        ret = np.zeros( positions.shape[0] )
-        link_list = make_link_list( positions, h, d )
-        def compute( i, pos ):
-            indexes = link_list[ array_to_int_tuple( pos, h) ]
-            dists = dist( pos, positions[indexes] )
-            return np.sum( kernel.cspline( dists, dim = d, h = h ), axis=0 )
-        ret = map( compute, enumerate(positions) )
+    with Timer('apply_sum_list') as t:
+        ret = apply_sum_list( positions, h, d )
         print( ret[:10], ret.shape )
-    with Timer('listed') as t:
-        ret = np.zeros( positions.shape[0] )
-        link_list = make_link_list( positions, h, d )
-        for i, position in enumerate(positions):
-            indexes = link_list[ array_to_int_tuple( position, h) ]
-            dists = dist( position, positions[indexes] )
-            ret[i] = np.sum( kernel.cspline( dists, dim = d, h = h ), axis=0 )
+
+    with Timer('apply_sum_map') as t:
+        ret = apply_sum_map( positions, h, d )
+        print( ret[:10], ret.shape )
+        
+    with Timer('apply_sum_for') as t:
+        ret = apply_sum_for( positions, h, d )
         print( ret[:10], ret.shape )
     
 if __name__ == '__main__':
