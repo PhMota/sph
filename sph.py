@@ -1100,16 +1100,17 @@ def make_link_list2( positions, h, d=1, radius=2 ):
         try:
             indexes_bin[in_bin]['in'].append( particle_index )
         except KeyError:
-            indexes_bin[in_bin] = {'in': [ particle_index ], 'around': [] }
+            indexes_bin[in_bin] = { 'in': [ particle_index ], 'around': [] }
 
         for relative_bin_shift in relative_bin_shifts:
             around_bin = tuple( particle_bin + relative_bin_shift )
             try:
                 indexes_bin[around_bin]['around'].append( particle_index )
             except KeyError:
-                indexes_bin[around_bin] = {'in': [], 'around': [ particle_index ]}
+                indexes_bin[around_bin] = { 'in': [], 'around': [ particle_index ] }
 
     lengths = [ len(v['around']) for k, v in indexes_bin.items() ]
+    indexes_bin = { key: index_bin for key, index_bin in indexes_bin.items() if len(index_bin['in']) > 0 }
     print( 'link list', max(lengths), np.median(lengths), len(lengths) )
     return indexes_bin
 
