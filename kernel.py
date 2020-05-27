@@ -1,4 +1,7 @@
 import numpy as np
+import weave
+
+pi = np.pi
 
 def cspline_unormalized( q ):
     o = np.zeros_like(q)
@@ -10,8 +13,78 @@ def cspline_unormalized( q ):
     o[between_1_and_2] = .25*(2-q_1_2)**3
     return o
 
+def cspline_unormalized_scalar( q ):
+    if q > 2: return 0
+    if q > 1: return .25*( 2 - q )**3
+    return 1 - 1.5 * q**2 + .75 * q**3
+
+def cspline_vectorized( dist, dim, h ):
+    return ( 2./3, 10*pi/7, 1./pi )[dim-1] / h**dim * np.vectorize( cspline_unormalized_scalar )( dist/h )
+
+def cspline_vectorized_k( dist, dim, h ):
+    k = 1./h**dim
+    if dim == 1: k *= 2./3
+    elif dim == 2: k *= 10*pi/7
+    elif dim == 3: k *= 1./pi
+    return k * np.vectorize( cspline_unormalized_scalar )( dist/h )
+
 def cspline( dist, dim, h ):
     return ( 2./3, 10*np.pi/7, 1./np.pi )[dim-1] / h**dim * cspline_unormalized( dist/h )
+
+def generate_cspline( dim, h = None ):
+    k = ( 2./3, 10*np.pi/7, 1./np.pi )[dim-1] / h**dim
+    return lambda dist, h = h, k = k: k*cspline_unormalized_weave( dist/h )
+
+def cspline_weave( dist, dim, h ):
+    code = '''
+    double k = 0;
+    if( dim == 1 ){ k = 2./3; }
+    if( dim == 2 ){ k = 10*pi/7; }
+    if( dim == 3 ){ k = 1./pi; }
+    for( int i=0; i < shape0; ++i){
+        for( int j=0; j < shape1; ++j){
+            int index = i + j*shape0;
+            double Q = q[index];
+            if( Q > 2 ){ 
+                ret[index] = 0; 
+            }
+            else { 
+                if( Q > 1 ){ 
+                    ret[index] = k*.25*(2-Q)*(2-Q)*(2-Q); 
+                    }
+                else{
+                    ret[index] = k*(1 - 1.5*Q*Q + .75*Q*Q*Q);
+                }
+            }
+        }
+    }
+    '''
+    q = dist/h
+    ret = np.zeros_like( q )
+    shape0 = ret.shape[0]
+    shape1 = ret.shape[1]
+    weave.inline( code, ['q', 'dim', 'ret', 'pi', 'shape0', 'shape1'], verbose=1 )
+    return ret.reshape((shape0,shape1))/h**dim
+
+def cspline_unormalized_weave( q ):
+    code = '''
+    for( int i=0; i < shape0; ++i ){
+        for( int j=0; j < shape1; ++j ){
+            int index = i + j*shape0;
+            double Q = q[index];
+            if( Q > 2 ){ ret[index] = 0; }
+            else { 
+                if( Q > 1 ){ ret[index] = .25*(2-Q)*(2-Q)*(2-Q); }
+                else{ ret[index] = 1 - 1.5*Q*Q + .75*Q*Q*Q; }
+            }
+        }
+    }
+    '''
+    ret = np.zeros_like( q )
+    shape0 = ret.shape[0]
+    shape1 = ret.shape[1]
+    weave.inline( code, ['ret', 'q', 'shape0', 'shape1'], verbose=1, compiler = 'gcc', extra_compile_args=['-O3'] )
+    return ret.reshape((shape0,shape1))
 
 #def cspline(h,dim):
     #K = (2./3, 10*np.pi/7, 1./np.pi)[dim-1]/h**dim
