@@ -20,36 +20,8 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk, GdkPixbuf, GObject, GLib
 
-import datetime
+from Timer import Timer
 import weave
-
-class Timer:
-    def __init__(self, msg='elapsed'):
-        self.msg = msg
-        
-    def __enter__(self):
-        self.start = datetime.datetime.now()
-        return self
-    
-    def __exit__(self, type, value, traceback):
-        s = [ self.msg ]
-        s += [ self.time() ]
-        if value:
-            s += [ '%s'%type ]
-            s += [ '%s'%value ]
-        print( ' '.join(s) )
-    
-    def seconds(self, N=1):
-        return (datetime.datetime.now() - self.start).total_seconds()*N
-    
-    def time(self, N=1):
-        t = self.seconds(N)
-        if t > 60*60:
-            s = '%sh%sm%ss%sms' %( int(t)/60/60, int(t/60)%60, int(t)%60, int(t*1e3)%1000 )
-        else: 
-            if t > 60: s = '%sm%ss%sms' %( int(t)/60, int(t)%60, int(t*1e3)%1000 )
-            else: s = '%ss%sms' % (int(t), int(t*1e3)%1000 )
-        return s
 
 class TimeIntegrators:
     @staticmethod
@@ -1108,7 +1080,7 @@ def build_sum2( positions, h, d=1, radius=2 ):
     return __sum__
 
 
-def build_sum( positions, h, W, d, dist, radius=2 ):
+def build_sum( positions, h, d, dist, radius=2 ):
     particle_bins = array_to_int( positions, h)
 
     particle_bins_tuple = map( tuple, particle_bins )
@@ -1134,13 +1106,29 @@ def build_sum( positions, h, W, d, dist, radius=2 ):
     lengths = [ len(v['around']) for k, v in indexes_bin.items() ]
     print( 'link list statistics', np.median(lengths), len(lengths) )
     
-    def __sum__( v = None ):
+    def __sum__( v = None, W = None, prime = False ):
         if v is None:
-            v = np.ones( len(positions) )
-        ret = np.zeros( len(positions) )
-        for bin_indexes in indexes_bin.values():
-            dists = dist( positions[ bin_indexes['in'] ], positions[ bin_indexes['around'] ] )
-            ret[ bin_indexes['in'] ] = np.sum( v[ bin_indexes['around'] ][:,None] * W( dists ), axis=0 )
+            v = np.ones( len(positions) )[:,None]
+        elif type(v) is float:
+            v = v*np.ones( len(positions) )[:,None]
+        elif len(v.shape) == 1:
+            v = v[:,None]
+        else:
+            raise Exception( 'error %s' % type(v) )
+        if not prime:
+            ret = np.zeros( len(positions) )
+            for bin_indexes in indexes_bin.values():
+                dists = dist( positions[ bin_indexes['in'] ], positions[ bin_indexes['around'] ] )
+                ret[ bin_indexes['in'] ] = np.sum( v[ bin_indexes['around'] ] * W( dists ), axis=0 )
+        else:
+            ret = np.zeros( positions.shape )
+            for bin_indexes in indexes_bin.values():
+                dists = dist( positions[ bin_indexes['in'] ], positions[ bin_indexes['around'] ] )
+                diffs = positions[ bin_indexes['in'] ][None,:,:] - positions[ bin_indexes['around'] ][:,None,:]
+                direction = diffs/dists[:,:,None]/h
+                
+                ret[ bin_indexes['in'] ] = np.sum( v[ bin_indexes['around'] ][:,:,None] * direction * W( dists )[:,:,None], axis=0 )
+            
         return ret
     return __sum__
 
@@ -1267,25 +1255,30 @@ def test_link_list():
     print()
 
     W = kernel.generate_cspline( d, h )
+    W_prime = kernel.generate_cspline_prime( d, h )
 
     with Timer('build sum weave'):
         with Timer('build sum weave'):
-            _sum_ = build_sum( positions, h, W, d, dist = dist_vectorized )
+            _sum_ = build_sum( positions, h, d, dist = dist_vectorized )
         with Timer('rho'):
-            rho = _sum_()
-            print( rho[:N], ret.shape )
+            rho = _sum_( None, W )
+            print( rho[:N], rho.shape )
         with Timer('vol'):
-            vol = _sum_( 1./rho )
-            print( vol[:N], ret.shape )
+            vol = _sum_( 1./rho, W )
+            print( vol[:N], vol.shape )
+        with Timer('P'):
+            P = rho**(5./3)
+            F = _sum_( P/rho**2, W_prime, prime=True ) + (P/rho**2)[:,None] * _sum_( 1., W_prime, prime=True )
+            print( F[:N], F.shape )            
     print()
     with Timer('build sum weave'):
         with Timer('build sum weave'):
-            _sum_ = build_sum( positions, h, W, d, dist = dist_weave )
+            _sum_ = build_sum( positions, h, d, dist = dist_weave )
         with Timer('rho'):
-            rho = _sum_()
+            rho = _sum_( None, W )
             print( rho[:N], ret.shape )
         with Timer('vol'):
-            vol = _sum_( 1./rho )
+            vol = _sum_( 1./rho, W )
             print( vol[:N], ret.shape )
     print()
     

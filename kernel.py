@@ -35,6 +35,10 @@ def generate_cspline( dim, h = None ):
     k = ( 2./3, 10*np.pi/7, 1./np.pi )[dim-1] / h**dim
     return lambda dist, h = h, k = k: k*cspline_unormalized_weave( dist/h )
 
+def generate_cspline_prime( dim, h = None ):
+    k = ( 2./3, 10*np.pi/7, 1./np.pi )[dim-1] / h**dim
+    return lambda dist, h = h, k = k: k*cspline_prime_unormalized_weave( dist/h )
+
 def cspline_weave( dist, dim, h ):
     code = '''
     double k = 0;
@@ -76,6 +80,26 @@ def cspline_unormalized_weave( q ):
             else { 
                 if( Q > 1 ){ ret[index] = .25*(2-Q)*(2-Q)*(2-Q); }
                 else{ ret[index] = 1 - 1.5*Q*Q + .75*Q*Q*Q; }
+            }
+        }
+    }
+    '''
+    ret = np.zeros_like( q )
+    shape0 = ret.shape[0]
+    shape1 = ret.shape[1]
+    weave.inline( code, ['ret', 'q', 'shape0', 'shape1'], verbose=1, compiler = 'gcc', extra_compile_args=['-O3'] )
+    return ret.reshape((shape0,shape1))
+
+def cspline_prime_unormalized_weave( q ):
+    code = '''
+    for( int i=0; i < shape0; ++i ){
+        for( int j=0; j < shape1; ++j ){
+            int index = i + j*shape0;
+            double Q = q[index];
+            if( Q > 2 ){ ret[index] = 0; }
+            else { 
+                if( Q > 1 ){ ret[index] = - 3*.25*(2-Q)*(2-Q); }
+                else{ ret[index] = - 3.*Q + 3*.75*Q*Q; }
             }
         }
     }
