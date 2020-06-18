@@ -1124,11 +1124,9 @@ def build_sum( positions, h, d, dist, radius=2 ):
             ret = np.zeros( positions.shape )
             for bin_indexes in indexes_bin.values():
                 dists = dist( positions[ bin_indexes['in'] ], positions[ bin_indexes['around'] ] )
-                diffs = positions[ bin_indexes['in'] ][None,:,:] - positions[ bin_indexes['around'] ][:,None,:]
-                direction = diffs/dists[:,:,None]/h
-                
-                ret[ bin_indexes['in'] ] = np.sum( v[ bin_indexes['around'] ][:,:,None] * direction * W( dists )[:,:,None], axis=0 )
-            
+                directions = positions[ bin_indexes['in'] ][None,:,:] - positions[ bin_indexes['around'] ][:,None,:]
+                directions[ dists>0 ] /= dists[:,:,None][ dists>0 ]*h
+                ret[ bin_indexes['in'] ] = np.sum( v[ bin_indexes['around'] ][:,:,None] * directions * W( dists )[:,:,None], axis=0 )
         return ret
     return __sum__
 
@@ -1139,8 +1137,8 @@ def interpolation( r, h, W, x, f ):
 def generate_IC(mode='random', dimension=1, number_of_fluid_elements=100):
     modes = {'random': 'generate random r and u'}
     if mode is 'random':
-        r = np.random.rand(dimension * number_of_fluid_elements)
-        u = np.random.rand(dimension * number_of_fluid_elements)
+        r = np.random.uniform(-1,1, dimension * number_of_fluid_elements)
+        u = np.random.uniform(-1,1, dimension * number_of_fluid_elements)
         r = np.reshape(r,(-1,dimension))
         u = np.reshape(u,(-1,dimension))
         return r, u
@@ -1225,61 +1223,248 @@ def dist_weave( x, y ):
     weave.inline( code, ['ret', 'x', 'Na', 'y', 'Nb', 'd'], compiler = 'gcc', extra_compile_args=['-O3'] )
     return ret
 
+class Base:
+    def __init__( self, array, name, signature):
+        if not isinstance(name, str): raise Exception('%s cannot be used as name' % self.name )
+        self.name = name
+        self.array = array
+        self.signature = signature
+    
+    def __getitem__( self, axes ):
+        if not type(axes) is tuple: axes = (axes,)
+        indices = []
+        slices = {}
+        if len(axes) is not len(self.signature):
+            raise Exception('dimension mismatch %s and %s' %(len(self.signature), len(axes)) )
+        for axis, t in zip(axes, self.signature):
+            if type(axis) is slice:
+                ind = axis.step
+                indices.append(ind)
+                slices[ind] = slice(axis.start,axis.stop)
+            else:
+                ind = axis
+                indices.append(ind)
+                slices[ind] = slice(None)
+            if not ind.signature is t:
+                raise Exception('signature mismatch %s and %s' %(t, ind.signature) )
+                
+        #print( 'getitem', slices )
+        return Indexed( self, slices, indices )
+
+    def __setitem__( self, axes, expr ):
+        print( 'setitem {}'.format(self.name), axes, expr )
+        self.array = expr.eval( axes )
+        
+    def __str__(self):
+        print('str')
+        return str(self.array)
+    def __repr__(self):
+        print('repr')
+        return repr(self.array)
+        #return '%s' % ( self.name )
+
+class Indexed:
+    def __init__(self, base, slices, indices ):
+        self.base = base
+        self.slices = slices
+        self.indices = indices
+    
+    def __repr__(self):
+        return '%s[%s]' % ( self.base.name, ','.join(map(repr,self.indices)) )
+        #return '%s' % ( self.base.name )
+
+    def __getitem__(self, s):
+        print( 'Indexed getitem {}'.format(self.base.name), s )
+        return self.base.array[s]
+
+    def __setitem__(self, s, val):
+        print( 'Indexed setitem {}'.format(self.base.name), s, val )
+        return self.base.array[s]
+    
+    def __mul__(self, other):
+        return Expr( Mul, (self, other) )
+
+    def __add__(self, other):
+        return Expr( Add, (self, other) )
+
+class Function:
+    def __init__(self, name, func):
+        self.name = name
+        self.func = func
+        
+    def __call__(self, *args):
+        return Expr( self, args )
+
+Add = Function('add', lambda x,y: x+y )
+Mul = Function('mul', lambda x,y: x*y )
+        
+class Expr:
+    def __init__( self, func, args ):
+        #print('constructed expr', func, args )
+        self.func = func
+        self.args = args
+    
+    def eval( self, axes, level=0 ):
+        if type(axes) is not tuple: axes = (axes,)
+        if level is 0: print('eval')
+        print( '  '*level + repr(self) )
+        new_args = []
+        for arg in self.args:
+            if isinstance(arg, Base):
+                thisslice = [ arg.slices[axis] if axis in arg.slices.keys() else None for axis in axes ]
+                new_args.append( arg[thisslice] )
+            elif isinstance(arg, Expr):
+                #print( 'arg', arg )
+                new_args.append( arg.eval(axes, level=level+1) )
+        ret = self.func( *new_args )
+        #print( 'ret', ret.shape )
+        return ret
+    
+    def __repr__( self ):
+        #print( self.args )
+        return '%s(%s)' %(self.func.name, ', '.join( map( repr, self.args )) )
+    
+    def __mul__( self, other ):
+        return Expr( Mul, (self, other) )
+
+    def __add__( self, other ):
+        return Expr( Add, (self, other) )
+
+class Index:
+    def __init__(self, name, signature):
+        self.name = name
+        self.signature = signature
+    
+    def __repr__(self):
+        return '%s' % (self.name)
+
+class BaseSum:
+    def __init__(self):
+        pass
+    
+    def __getitem__(self, axis):
+        return lambda expr: Expr( Sum(axis), expr )
+                
+    
 def get_neighbor_positions( particle_position, all_positions, link_list, h ):
     neighbor_indexes = link_list[ array_to_int_tuple( particle_position, h) ]
     return all_positions[ neighbor_indexes ]
     
 def get_h( number_of_fluid_elements, fluid_elements_per_bin, volume, d ):
-    number_of_bins = float(number_of_fluid_elements)/fluid_elements_per_bin
+    number_of_bins = float(number_of_fluid_elements)/(fluid_elements_per_bin/5.**d)
     h = np.power( volume/number_of_bins, 1./d )
     return h
 
 def test_link_list():
     L = np.array([1,1,1])
-    number_of_fluid_elements = int(1e5)
-    d = 3
+    number_of_fluid_elements = int(1e3)
+    d = 1
     volume = np.prod(L)
-    h = get_h( number_of_fluid_elements, 3, volume, d )
+    h = get_h( number_of_fluid_elements, 50., volume, d )
     number_of_bins = volume/h**d
     #h = .02
-    print( 'h', h )
-    N = 4
+    print('h',h)
+    N = 10
+    mask = slice( None,N )
     
     positions, velocities = generate_IC( mode='random', dimension=d, number_of_fluid_elements = number_of_fluid_elements )
     print( 'shape', positions.shape, np.prod(L), number_of_bins, number_of_fluid_elements/number_of_bins )
     
-    with Timer('brute force') as timer:
-        dists =  dist( positions[None,:N,:], positions[:,None,:] )
-        ret = np.sum( kernel.cspline_weave( dists, d, h ), axis = 0 )
-        print( ret, ret.shape, timer.time( number_of_fluid_elements/N ) )
-    print()
+    #a = Index('a', signature='n')
+    #b = Index('b', signature='n')
+    #i = Index('i', signature='d')
+    #j = Index('j', signature='d')
+    #r = Base(positions,'r', signature='nd')
+    #v = Base(velocities,'v', signature='nd')
+    #result = Base(None,'result', 'ndd')
+    
+    #result[a,i,j] = r[a,i] * r[a,j] + r[a,j]
+    #print( 'result', result )
+    #print( 'result.array', result.array )
+    #print( 'r', r )
+    #exit(0)
+    
+    #with Timer('brute force') as timer:
+        #dists =  dist( positions[None,:N,:], positions[:,None,:] )
+        #ret = np.sum( kernel.cspline_weave( dists, d, h ), axis = 0 )
+        #print( ret, ret.shape, timer.time( number_of_fluid_elements/N ) )
+    #print()
 
     W = kernel.generate_cspline( d, h )
     W_prime = kernel.generate_cspline_prime( d, h )
 
-    with Timer('build sum weave'):
-        with Timer('build sum weave'):
-            _sum_ = build_sum( positions, h, d, dist = dist_vectorized )
-        with Timer('rho'):
-            rho = _sum_( None, W )
-            print( rho[:N], rho.shape )
-        with Timer('vol'):
-            vol = _sum_( 1./rho, W )
-            print( vol[:N], vol.shape )
-        with Timer('P'):
-            P = rho**(5./3)
-            F = _sum_( P/rho**2, W_prime, prime=True ) + (P/rho**2)[:,None] * _sum_( 1., W_prime, prime=True )
-            print( F[:N], F.shape )            
+    #with Timer('build sum weave'):
+        #with Timer('build sum weave'):
+            #_sum_ = build_sum( positions, h, d, dist = dist_vectorized )
+        #with Timer('rho'):
+            #rho = _sum_( None, W )
+            #print( 'rho', rho[:N], rho.shape )
+        #with Timer('vol'):
+            #vol = _sum_( 1./rho, W )
+            #print( 'vol', vol[:N], vol.shape )
+        #with Timer('P'):
+            #P = rho**(5./3)
+            #F = _sum_( P/rho**2, W_prime, prime=True ) + (P/rho**2)[:,None] * _sum_( 1., W_prime, prime=True )
+            
+            #print( F[:N], F.shape )
     print()
-    with Timer('build sum weave'):
+    dt = h
+    velocities = np.zeros_like(velocities)
+    for i in range(10):
+        a = ( slice(None,None), None )
+        b = ( None, slice(None,None) )
+        axis_a = 0
+        axis_b = 1
+        mask = positions[:,0] > .99
         with Timer('build sum weave'):
-            _sum_ = build_sum( positions, h, d, dist = dist_weave )
-        with Timer('rho'):
-            rho = _sum_( None, W )
-            print( rho[:N], ret.shape )
-        with Timer('vol'):
-            vol = _sum_( 1./rho, W )
-            print( vol[:N], ret.shape )
+            print( 'r', positions[mask] )
+            print( 'v', velocities[mask] )
+            with Timer('build sum weave'):
+                _sum_ = build_sum( positions, h, d, dist = dist_vectorized )
+            with Timer('rho'):
+                rho = _sum_( None, W )
+                print( 'rho', rho[mask], rho.shape )
+            #with Timer('vol'):
+                #vol = _sum_( 1./rho, W )
+                ##print( 'vol', vol[mask], vol.shape )
+            with Timer('P'):
+                P = rho**(1./3)
+                F = _sum_( (P/rho**2), W_prime, prime=True ) + (P/rho**2)[a] * _sum_( 1., W_prime, prime=True )
+                print( 'F', F[mask], F.shape )
+            dv_dt = -F
+            dr_dt = velocities
+            
+            positions += dr_dt * dt
+            velocities += dv_dt * dt
+    print()
+
+    #with Timer('smart sum'):
+        #with Timer('build sum weave'):
+            #Sum = build_smart_sum( positions, h, d, dist = dist_vectorized )
+        #with Timer('rho'):
+            #rho[a] = Sum[b]( W[a,b] ) # np.sum( W( dist(r[None,:,:], r[:,None,:]) ), axis=0 )
+            #print( rho[:N], rho.shape )
+        #with Timer('vol'):
+            #vol[a] = Sum[b]( W[a,b]/rho[b] )
+            #print( vol[:N], vol.shape )
+        #with Timer('P'):
+            #P = rho**(5./3)
+            #F[a,i] = Sum[b]( P[b]/rho[b]**2 + (P[a]/rho[a]**2) * W_prime[a,b,i] )
+            #print( F[:N], F.shape )
+
+    #with Timer('build sum weave'):
+        #with Timer('build sum weave'):
+            #_sum_ = build_sum( positions, h, d, dist = dist_weave )
+        #with Timer('rho'):
+            #rho = _sum_( None, W )
+            #print( rho[:N], ret.shape )
+        #with Timer('vol'):
+            #vol = _sum_( 1./rho, W )
+            #print( vol[:N], ret.shape )
+        #with Timer('P'):
+            #P = rho**(5./3)
+            #F = _sum_( P/rho**2, W_prime, prime=True ) + (P/rho**2)[:,None] * _sum_( 1., W_prime, prime=True )
+            #print( F[:N], F.shape )
     print()
     
 if __name__ == '__main__':
