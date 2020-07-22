@@ -1355,6 +1355,19 @@ def get_h( number_of_fluid_elements, fluid_elements_per_bin, volume, d ):
     h = np.power( volume/number_of_bins, 1./d )
     return h
 
+class StateBase:
+    def __init__( self, r, u ):
+        self.__r = r
+        self.__u = u
+
+class SystemBase:
+    def __init__( self, energy_distribution, external_potential ):
+        self.__e = energy_distribution
+        self.__V = external_potential
+
+    def evolve( self, dt, exit_condition ):
+        
+
 def test_link_list():
     L = np.array([1,1,1])
     number_of_fluid_elements = int(1e3)
@@ -1370,43 +1383,15 @@ def test_link_list():
     positions, velocities = generate_IC( mode='random', dimension=d, number_of_fluid_elements = number_of_fluid_elements )
     print( 'shape', positions.shape, np.prod(L), number_of_bins, number_of_fluid_elements/number_of_bins )
     
-    #a = Index('a', signature='n')
-    #b = Index('b', signature='n')
-    #i = Index('i', signature='d')
-    #j = Index('j', signature='d')
-    #r = Base(positions,'r', signature='nd')
-    #v = Base(velocities,'v', signature='nd')
-    #result = Base(None,'result', 'ndd')
-    
-    #result[a,i,j] = r[a,i] * r[a,j] + r[a,j]
-    #print( 'result', result )
-    #print( 'result.array', result.array )
-    #print( 'r', r )
-    #exit(0)
-    
-    #with Timer('brute force') as timer:
-        #dists =  dist( positions[None,:N,:], positions[:,None,:] )
-        #ret = np.sum( kernel.cspline_weave( dists, d, h ), axis = 0 )
-        #print( ret, ret.shape, timer.time( number_of_fluid_elements/N ) )
-    #print()
+    with Timer('brute force') as timer:
+        dists =  dist( positions[None,:N,:], positions[:,None,:] )
+        ret = np.sum( kernel.cspline_weave( dists, d, h ), axis = 0 )
+        print( ret, ret.shape, timer.time( number_of_fluid_elements/N ) )
+    print()
 
     W = kernel.generate_cspline( d, h )
     W_prime = kernel.generate_cspline_prime( d, h )
 
-    #with Timer('build sum weave'):
-        #with Timer('build sum weave'):
-            #_sum_ = build_sum( positions, h, d, dist = dist_vectorized )
-        #with Timer('rho'):
-            #rho = _sum_( None, W )
-            #print( 'rho', rho[:N], rho.shape )
-        #with Timer('vol'):
-            #vol = _sum_( 1./rho, W )
-            #print( 'vol', vol[:N], vol.shape )
-        #with Timer('P'):
-            #P = rho**(5./3)
-            #F = _sum_( P/rho**2, W_prime, prime=True ) + (P/rho**2)[:,None] * _sum_( 1., W_prime, prime=True )
-            
-            #print( F[:N], F.shape )
     print()
     dt = h
     velocities = np.zeros_like(velocities)
@@ -1436,35 +1421,6 @@ def test_link_list():
             
             positions += dr_dt * dt
             velocities += dv_dt * dt
-    print()
-
-    #with Timer('smart sum'):
-        #with Timer('build sum weave'):
-            #Sum = build_smart_sum( positions, h, d, dist = dist_vectorized )
-        #with Timer('rho'):
-            #rho[a] = Sum[b]( W[a,b] ) # np.sum( W( dist(r[None,:,:], r[:,None,:]) ), axis=0 )
-            #print( rho[:N], rho.shape )
-        #with Timer('vol'):
-            #vol[a] = Sum[b]( W[a,b]/rho[b] )
-            #print( vol[:N], vol.shape )
-        #with Timer('P'):
-            #P = rho**(5./3)
-            #F[a,i] = Sum[b]( P[b]/rho[b]**2 + (P[a]/rho[a]**2) * W_prime[a,b,i] )
-            #print( F[:N], F.shape )
-
-    #with Timer('build sum weave'):
-        #with Timer('build sum weave'):
-            #_sum_ = build_sum( positions, h, d, dist = dist_weave )
-        #with Timer('rho'):
-            #rho = _sum_( None, W )
-            #print( rho[:N], ret.shape )
-        #with Timer('vol'):
-            #vol = _sum_( 1./rho, W )
-            #print( vol[:N], ret.shape )
-        #with Timer('P'):
-            #P = rho**(5./3)
-            #F = _sum_( P/rho**2, W_prime, prime=True ) + (P/rho**2)[:,None] * _sum_( 1., W_prime, prime=True )
-            #print( F[:N], F.shape )
     print()
     
 if __name__ == '__main__':
