@@ -4,7 +4,7 @@ from numpy import *
 from numpy.linalg import eig
 from scipy.stats import poisson
 import matplotlib
-matplotlib.use('gtk3agg')
+#matplotlib.use('gtk3agg')
 
 from matplotlib import pylab as plt
 
