@@ -36,8 +36,17 @@ def generate_cspline( dim, h = None ):
     return lambda dist, h = h, k = k: k*cspline_unormalized_weave( dist/h )
 
 def generate_cspline_prime( dim, h = None ):
-    k = ( 2./3, 10*np.pi/7, 1./np.pi )[dim-1] / h**dim
+    k = ( 2./3, 10*np.pi/7, 1./np.pi )[dim-1] / h**(dim+1)
     return lambda dist, h = h, k = k: k*cspline_prime_unormalized_weave( dist/h )
+
+def generate_qspline( dim, h = None ):
+    k = (1./120., 7./(478*np.pi), 3./(359*np.pi))[dim-1] / h**dim
+    return lambda dist, h = h, k = k: k*qspline_unormalized_weave( dist/h )
+
+def generate_qspline_prime( dim, h = None ):
+    k = (1./120., 7./(478*np.pi), 3./(359*np.pi))[dim-1] / h**(dim+1)
+    return lambda dist, h = h, k = k: k*qspline_prime_unormalized_weave( dist/h )
+
 
 def cspline_weave( dist, dim, h ):
     code = '''
@@ -245,6 +254,52 @@ def cspline_opth(dim):
         return res
     return (d0,d1,d2,d3)
 
+def qspline_unormalized_weave( q ):
+    code = '''
+    for( int i=0; i < shape0; ++i ){
+        for( int j=0; j < shape1; ++j ){
+            int index = i + j*shape0;
+            double Q = q[index];
+            if( Q > 3 ){ ret[index] = 0; }
+            else {
+                if( Q > 2 ){ ret[index] = pow(3-Q, 5); }
+                else { 
+                    if( Q > 1 ){ ret[index] = pow(3-Q, 5) - 6*pow(2-Q, 5); }
+                    else{ ret[index] = pow(3-Q, 5) - 6*pow(2-Q, 5) + 15*(1-Q, 5); }
+                }
+            }
+        }
+    }
+    '''
+    ret = np.zeros_like( q )
+    shape0 = ret.shape[0]
+    shape1 = ret.shape[1]
+    weave.inline( code, ['ret', 'q', 'shape0', 'shape1'], verbose=1, compiler = 'gcc', extra_compile_args=['-O3'] )
+    return ret.reshape((shape0,shape1))
+
+def qspline_prime_unormalized_weave( q ):
+    code = '''
+    for( int i=0; i < shape0; ++i ){
+        for( int j=0; j < shape1; ++j ){
+            int index = i + j*shape0;
+            double Q = q[index];
+            if( Q > 3 ){ ret[index] = 0; }
+            else {
+                if( Q > 2 ){ ret[index] = -5*pow(3-Q, 4); }
+                else { 
+                    if( Q > 1 ){ ret[index] = -5*pow(3-Q, 5) + 5*6*pow(2-Q, 4); }
+                    else{ ret[index] = -5*pow(3-Q, 4) + 5*6*pow(2-Q, 4) - 5*15*(1-Q, 4); }
+                }
+            }
+        }
+    }
+    '''
+    ret = np.zeros_like( q )
+    shape0 = ret.shape[0]
+    shape1 = ret.shape[1]
+    weave.inline( code, ['ret', 'q', 'shape0', 'shape1'], verbose=1, compiler = 'gcc', extra_compile_args=['-O3'] )
+    return ret.reshape((shape0,shape1))
+
 def qspline_opth(dim):
     K = (1./120., 7/(478*np.pi), 3/(359*np.pi))[dim-1]
     def d0( d, h ):
@@ -305,7 +360,71 @@ def exp_opth(dim):
         res[less_than_2] = np.exp(-q[less_than_2]**2)
         return K*res/h**dim
     return (d0,0,0,0)
-    
+
+def liq_unormalized_weave( q ):
+    code = '''
+    double A = -1.458;
+    double B = 3.790;
+    double C = -2.624;
+    double D = -0.2915;
+    double E = 0.5831; //changed here
+    double F = 0.6500;   
+    for( int i=0; i < shape0; ++i ){
+        for( int j=0; j < shape1; ++j ){
+            int index = i + j*shape0;
+            double u = q[index]/2.;
+            if( u >= 1 ){ ret[index] = 0; }
+            else {
+                if( u >= 0.3 ){ ret[index] = A*pow(u,4) + B*pow(u,3) + C*pow(u,2) + D*u + E; }
+                else { 
+                    ret[index] = F - u;
+                }
+            }
+        }
+    }
+    '''
+    ret = np.zeros_like( q )
+    shape0 = ret.shape[0]
+    shape1 = ret.shape[1]
+    weave.inline( code, ['ret', 'q', 'shape0', 'shape1'], verbose=1, compiler = 'gcc', extra_compile_args=['-O3'] )
+    return ret.reshape((shape0,shape1))
+
+def generate_liq( dim, h = None ):
+    k = (1., 2.962, 3.947)[dim-1] / h**dim
+    return lambda dist, h = h, k = k: k*liq_unormalized_weave( dist/h )
+
+def liq_prime_unormalized_weave( q ):
+    code = '''
+    double A = -1.458;
+    double B = 3.790;
+    double C = -2.624;
+    double D = -0.2915;
+    double E = 0.5831;
+    double F = 0.6500;   
+    for( int i=0; i < shape0; ++i ){
+        for( int j=0; j < shape1; ++j ){
+            int index = i + j*shape0;
+            double u = q[index]/2;
+            if( u > 1 ){ ret[index] = 0; }
+            else {
+                if( u > 0.3 ){ ret[index] = 2*A*pow(u,3) + 1.5*B*pow(u,2) + C*u + D/2; }
+                else { 
+                    ret[index] = - .5;
+                }
+            }
+        }
+    }
+    '''
+    ret = np.zeros_like( q )
+    shape0 = ret.shape[0]
+    shape1 = ret.shape[1]
+    weave.inline( code, ['ret', 'q', 'shape0', 'shape1'], verbose=1, compiler = 'gcc', extra_compile_args=['-O3'] )
+    return ret.reshape((shape0,shape1))
+
+def generate_liq_prime( dim, h = None ):
+    k = (1., 2.962, 3.947)[dim-1] / h**(dim+1)
+    return lambda dist, h = h, k = k: k*liq_prime_unormalized_weave( dist/h )
+
 def liq(h,dim):
     A = -1.458
     B = 3.790

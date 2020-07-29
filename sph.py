@@ -1,8 +1,11 @@
+# coding: utf-8
+
 from __future__ import print_function
 
-import numpy as np
 from numpy import *
 import scipy.integrate
+import scipy.stats as stats
+
 from math import factorial
 import matplotlib as mpl
 mpl.use('Agg')
@@ -1366,6 +1369,16 @@ class SystemBase:
         self.__V = external_potential
 
     def evolve( self, dt, exit_condition ):
+        pass
+
+def generateIC( e, N, h ):
+    r = zeros(N)*nan
+    unassigned = isnan(r)
+    e_max = max(e)
+    while True:
+        new_r = random.uniform( e.shape )
+        test = random.uniform( new_r.size )
+        
         
 
 def test_link_list():
@@ -1422,9 +1435,326 @@ def test_link_list():
             positions += dr_dt * dt
             velocities += dv_dt * dt
     print()
+
+def test_IC():
+    Lx = 10
+    Npoints = 10
+    L = array([[ -Lx, Lx, Npoints ], [ -Lx, Lx, Npoints ]])
+    ix = [ linspace(*Li) for Li in L ]
+    xv = meshgrid( *ix )
+    e = scipy.stats.norm.pdf(xv[0])*scipy.stats.norm.pdf(xv[1])
+    print( e.shape )
     
+    e_max = amax(e)
+    print( e )
+    print( e[Lx/2,Lx/2]/e_max ) 
+    Nelements = 10
+    print( len(L) )
+    r = random.random( size=Nelements*len(L) ).reshape( (len(L),-1) )*(L[:,1] - L[:,0])[:,None] + L[:,0][:,None]
+    print( r.shape )
+
+class System:
+    def __init__( self, r, p, kernel, kernel_prime ):
+        if len(r) != len(p):
+            print( 'different sizes')
+            exit(0)
+        self.__r = r
+        self.__p = p
+        self.size = len(r)
+        self.kernel = kernel
+        self.kernel_prime = kernel_prime
+        return
+
+    def build_sum( self, h, d, dist, radius=2 ):
+        particle_bins = array_to_int( self.r, h)
+
+        particle_bins_tuple = map( tuple, particle_bins )
+        occupied_bins, particle_indexes_in_bin = np.unique( particle_bins_tuple, axis=0, return_inverse = True )
+        print( 'particles/bins', float( self.size )/len(occupied_bins) )
+
+        relative_bin_shifts = get_relative_bin_shifts( d, radius )
+        
+        indexes_bin = { tuple(occupied_bin): {'in':[], 'around':[]} for occupied_bin in occupied_bins }
+        first = True
+        for bin_index, occupied_bin in enumerate(occupied_bins):
+            particle_indexes = np.nonzero( particle_indexes_in_bin == bin_index )[0].tolist()
+            in_bin = tuple(occupied_bin)
+            indexes_bin[in_bin]['in'].extend( particle_indexes )
+
+            for relative_bin_shift in relative_bin_shifts:
+                around_bin = tuple( occupied_bin + relative_bin_shift )
+                try:
+                    indexes_bin[around_bin]['around'].extend( particle_indexes )
+                except KeyError:
+                    pass
+        
+        lengths = [ len(v['around']) for k, v in indexes_bin.items() ]
+        print( 'link list statistics', np.median(lengths), len(lengths) )
+        
+        def __sum__( v = None, W = None, prime = False ):
+            if v is None:
+                v = np.ones_like( self.r )[:,None]
+            elif type(v) is float:
+                v = v*np.ones_like( self.r )[:,None]
+            elif len(v.shape) == 1:
+                v = v[:,None]
+            else:
+                raise Exception( 'error %s' % type(v) )
+            if not prime:
+                ret = np.zeros_like( self.r )
+                for bin_indexes in indexes_bin.values():
+                    dists = dist( self.r[ bin_indexes['in'] ], self.r[ bin_indexes['around'] ] )
+                    ret[ bin_indexes['in'] ] = sum( v[ bin_indexes['around'] ] * W( dists ), axis=0 )
+            else:
+                ret = np.zeros_like( self.r )
+                for bin_indexes in indexes_bin.values():
+                    dists = dist( self.r[ bin_indexes['in'] ], self.r[ bin_indexes['around'] ] )
+                    directions = self.r[ bin_indexes['in'] ][None,:,:] - self.r[ bin_indexes['around'] ][:,None,:]
+                    directions[ dists>0 ] /= dists[:,:,None][ dists>0 ]
+                    ret[ bin_indexes['in'] ] = sum( v[ bin_indexes['around'] ][:,:,None] * directions * W( dists )[:,:,None], axis=0 )
+            return ret
+        return __sum__
+    
+    @property
+    def r(self):
+        return self.__r
+
+    @property
+    def p(self):
+        return self.__p
+    
+    def sum(self, a):
+        return sum( a, axis=1 )
+        
+    @property
+    def dr_dt(self):
+        try: 
+            return self.__dr_dt
+        except AttributeError:
+            self.__dr_dt = self.p#/self.rho[:,None]**2
+            return self.__dr_dt
+    
+    @property
+    def dp_dt(self):
+        try: 
+            return self.__dp_dt
+        except AttributeError:
+            self.__dp_dt = -self.sum( ( self.F[None,:,None] + self.F[:,None,None] ) * self.gradW(self.r, self.r) )
+            return self.__dp_dt
+    
+    @property
+    def F(self):
+        try:
+            return self.__F
+        except AttributeError:
+            self.__F = self.P/self.rho**2# - self.pSqr/self.rho**3
+            return self.__F
+
+    @property
+    def P(self):
+        try:
+            return self.__P
+        except AttributeError:
+            self.__P = self.rho**(4./3)
+            return self.__P
+    
+    @property
+    def e(self):
+        return 3*self.P
+    
+    @property
+    def pSqr(self):
+        return sum(self.p**2, axis=-1)
+    
+    @property
+    def rho(self):
+        try:
+            return self.__rho
+        except AttributeError:
+            self.__rho = self.sum( self.W(self.r, self.r) )
+            #print( 'rho.shape', self.__rho.shape )
+            return self.__rho
+    
+    def W(self, x, x2):
+        diffs = x[:,None,:] - x2[None,:,:]
+        dists = sqrt( sum(diffs**2, axis=-1) )
+        return self.kernel( dists )
+    
+    #@property
+    #def W(self):
+        #try:
+            #return self.__W
+        #except AttributeError:
+            #self.__W = self.kernel(self.dists)
+            #return self.__W
+
+    def gradW(self, x, x2):
+        diffs = x[:,None,:] - x2[None,:,:]
+        dists = sqrt( sum(diffs**2, axis=-1) )
+        dirs = diffs
+        dirs[ dists!=0 ] /= dists[ dists!=0 ][:,None]
+        return self.kernel_prime(dists)[:,:,None] * dirs
+        
+    
+    @property
+    def H(self):
+        try:
+            return self.__H
+        except AttributeError:
+            self.__H = .5*sum( self.pSqr, axis=0 ) + sum( self.e/self.rho, axis=0 )
+            return self.__H
+    
+    @property
+    def J(self):
+        try:
+            return self.__J
+        except AttributeError:
+            self.__J = sum( self.p, axis=0 )
+            return self.__J
+    
+    @property
+    def v(self):
+        try:
+            return self.__v
+        except AttributeError:
+            self.__v = self.p/self.rho**2
+        
+    def ascii_e(self, a, b, l=100):
+        x = linspace(a, b, l)
+        W = self.kernel( abs(x[:,None] - self.r[None,:,0]) )
+        rho = sum( W, axis=1 )
+        #print( W )
+        e = 3*rho**(4./3)
+        e_max = amax(e)
+        s = (' ',' ̣','.','·','˙','^')
+        line1 = ''.join( [ s[int((len(s)-1)*ie/e_max)] for ie in e ] )
+        line2 = [' ']*l
+        chars = range(ord('0'), ord('9')) + range(ord('a'), ord('z')) + range(ord('A'), ord('Z'))
+        for i, ri in enumerate(self.__r):
+            r__ = int( (ri[0] - a)/(b - a) * l )
+            if r__ < len(line2):
+                line2[r__] = '%c' % chars[i % len(chars)]
+        line2 = ''.join(line2)
+        return '\n'.join((line1,line2))
+    
+    def ascii_e_2d(self, a, b, l=100, e_max=None):
+        if e_max is None:
+            e_max = amax(self.e)
+        bg = lambda text, color: "\33[48;5;" + str(color) + "m" + text + "\33[0m"
+        f = .4
+        x_ = linspace(a, b, l)
+        y_ = linspace(a, b, int(l*f))
+        r__ = array( [ [xi, yi, 0] for yi in y_ for xi in x_ ] )
+        pos_min = array([a,a,a])[None,:]
+        pos_max = array([b,b,b])[None,:]
+        pos = (self.r - pos_min)/(pos_max - pos_min)
+        pos[:,0] *= l
+        pos[:,1] = (pos[:,1]*l*f).astype(int)
+        pos = pos.astype(int)
+        pos = [ (ipos[0], ipos[1]) for ipos in pos ]
+        dists = sqrt(sum( (r__[:,None,:] - self.r[None,:,:])**2, axis=-1 ))
+        W = self.kernel( dists )
+        rho = sum( W, axis=1 )
+        e = 3*rho**(4./3)
+        s = ''
+        #exit(0)
+        for y in range(len(y_)):
+            for x in range(len(x_)):
+                #print( (e/e_max)/(195-160) + 160 )
+                #e_ = log( e[x+y*l]+1e-3 )/log( e_max+1e-3 )
+                e_ = e[x+y*l]/e_max
+                e__ = int( e_*(255-232) ) + 232
+                #print( int(e__), end=' ' )
+                count = pos.count((x,y))
+                marker = (str(count) if count < 10 else '9') if count>0 else ' '
+                s += bg(marker, int(e__))
+            s += '\n'
+        os.system('cls||clear')
+        print( s )
+        print('e_max', e_max, end=' ')
+        return
+
+def collision_test():
+    N = 1000
+    ri = scipy.stats.norm.rvs(0,.1, N)
+    rj = scipy.stats.norm.rvs(0,.1, N)
+    r1 = array([[ri_-.8,rj_,0] for ri_, rj_ in zip(ri,rj) ]).astype(float)
+    p1 = array([[20,0,0] for ri_,rj_ in zip(ri,rj) ]).astype(float)
+
+    ri = scipy.stats.norm.rvs(0,.1, N)
+    rj = scipy.stats.norm.rvs(0,.1, N)
+    r2 = array([[ri_+.8,rj_,0] for ri_, rj_ in zip(ri,rj) ]).astype(float)
+    p2 = array([[-20,0,0] for ri_,rj_ in zip(ri,rj) ]).astype(float)
+    
+    r = concatenate( (r1,r2) )
+    p = concatenate( (p1,p2) )
+    print( 'r.shape', r.shape )
+    print( 'p.shape', p.shape )
+    dim = r.shape[1]
+    h = .05
+    dt = h/10.
+    #W = kernel.generate_liq( dim, h )
+    #W_prime = kernel.generate_liq_prime( dim, h )
+    W = kernel.generate_cspline( dim, h )
+    W_prime = kernel.generate_cspline_prime( dim, h )
+    
+    p_next = p
+    r_next = r
+    
+    #c = [1, -2./3, 2./3]
+    #d = [-1./24, 3./4, 7./24]
+
+    c = [
+        .5/(2-2**(1./3)),
+        .5*(1-2**(1./3))/(2-2**(1./3)),
+        .5*(1-2**(1./3))/(2-2**(1./3)),
+        .5/(2-2**(1./3)),
+        ]
+    d = [
+        1./(2-2**(1./3)),
+        -2**(1./3)/(2-2**(1./3)),
+        1./(2-2**(1./3)),
+        0
+        ]
+    
+    system = System( r, p, W, W_prime )
+    H0 = system.H
+    e_max = amax(system.e)
+    t = 0
+    L = 1
+    while True:
+        for i, (ci, di) in enumerate(zip(c, d)):
+            print( i )
+            system = System( r_next, p_next, W, W_prime )
+            r_next = system.r + ci*dt*system.dr_dt
+            system = System( r_next, p_next, W, W_prime )
+            p_next = system.p + di*dt*system.dp_dt
+        t += dt
+        #print( system.ascii_e(-1,1,100), '[{}]'.format( (system.H-H0)/H0 ) )
+        r, p = system.r, system.p
+        if amax( abs(r[:,0])) > L or amax( abs(r[:,1])) > L:
+            L *= 2
+        #for a in range(len(r)):
+            #for i in range(dim):
+                #if r[a][i] < -1 and p[a][i] < 0:
+                    #r[a][i] = -1
+                    #p[a] = abs(p[a])
+                #elif r[a][i] > 1 and p[a][i] > 0:
+                    #r[a][i] = 1
+                    #p[a] = -abs(p[a])
+        p_next = p
+        r_next = r
+        system.ascii_e_2d( -L, L, 70, None)
+        print( 't=', t, 
+              '[{}]'.format( (system.H-H0)/H0 ), 
+              'pmax', amax(sqrt(system.pSqr)), 
+              'vmax', amax(sqrt(sum(system.dr_dt**2, axis=-1)))
+              )
+                    
 if __name__ == '__main__':
-    test_link_list()
+    #test_link_list()
+    #test_IC()
+    collision_test()
     exit(0)
 
 exit(0)
