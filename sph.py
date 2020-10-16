@@ -71,7 +71,7 @@ class TimeIntegrators:
                 return dp, dq
             return integrator
             #return lambda p, q, dt: ( lambda p1: (
-                             #lambda q2: ( p1 + dt/2*fp(p1,q2) - p, q2 - q ) 
+                             #lambda q2: ( p1 + dt/2*fp(p1,q2) - p, q2 - q )
                              #) ( q + dt * fv(p1,q) ) #q2
                              #) ( p + dt/2 * fp(p,q) ) #p1
         @staticmethod
@@ -82,25 +82,25 @@ class TimeIntegrators:
                 p_2 = p_1 + dt/2 * fp( p_1, q_2 )
                 return p_2, q_2
             return integrator
-        
+
         @staticmethod
         def RungeKutta4( dot_q, dot_p ):
             def integrator( t, q, p, dt ):
                 P1 = dot_p( t, q, p )
                 Q1 = dot_q( t, q, p )
-                
+
                 P2 = dot_p( t + dt/2., q + dt/2.*Q1, p + dt/2.*P1 )
                 Q2 = dot_q( t + dt/2., q + dt/2.*Q1, p + dt/2.*P1 )
-                
+
                 P3 = dot_p( t + dt/2., q + dt/2.*Q2, p + dt/2.*P2 )
                 Q3 = dot_q( t + dt/2., q + dt/2.*Q2, p + dt/2.*P2 )
-                
+
                 P4 = dot_p( t + dt, q + dt*Q3, p + dt*P3 )
                 Q4 = dot_q( t + dt, q + dt*Q3, p + dt*P3 )
-                
+
                 dp = (P1 + 2*P2 + 2*P3 + P4)*dt/6.
                 dq = (Q1 + 2*Q2 + 2*Q3 + Q4)*dt/6.
-                
+
                 return t + dt, q + dq, p + dp
             return integrator
 
@@ -109,19 +109,19 @@ class TimeIntegrators:
             def integrator( t, q, p, dt ):
                 P1 = P( t, q, p )
                 Q1 = Q( t, q, p ) + dt/2.*P1
-                
+
                 P2 = P( t + dt/2., q + dt/2.*Q1, p + dt/2.*P1 )
                 Q2 = Q( t + dt/2., q + dt/2.*Q1, p + dt/2.*P1 ) + dt/4.*P1
-                
+
                 P3 = P( t + dt/2., q + dt/2.*Q2, p + dt/2.*P2 )
                 Q3 = Q( t + dt/2., q + dt/2.*Q2, p + dt/2.*P2 ) + dt/4.*P2
-                
+
                 P4 = P( t + dt, q + dt*Q3, p + dt*P3 )
                 Q4 = Q( t + dt, q + dt*Q3, p + dt*P3 ) + dt/2.*P3
-                
+
                 dp = (P1 + 2*P2 + 2*P3 + P4)*dt/6.
                 dq = (Q1 + 2*Q2 + 2*Q3 + Q4)*dt/6.
-                
+
                 return t + dt, q + dq, p + dp+p
             return integrator
 
@@ -179,39 +179,39 @@ class AnalyticalSolution:
         self.k = pi / self.L
         self.K = 4 * self.k * self.visc
         self.I0 = scipy.special.i0( u_0*L/(2*pi*visc) )
-        
+
     def Iv(self,n): return scipy.special.iv( n, self.u_0*self.L/(2*pi*self.visc) )
-    
+
     def t_term(self, n, t ): return exp( -n**2 * self.k**2 * self.visc*t )
-    
+
     def x_N(self, n, x, diff = 0 ): return imag( exp( 1.j * n*self.k*x ) * (1.j * n*self.k)**diff )
 
     def x_D(self, n, x, diff = 0 ): return real( exp( 1.j * n*self.k*x ) * (1.j * n*self.k)**diff )
-    
+
     def N(self, x, t, diff_x = 0 ):
         return AnalyticalSolution.sum_converge_array(
-                lambda n, x=x, t=t, diff_x=diff_x: n * self.Iv(n) * self.t_term( n, t ) * self.x_N( n, x, diff_x ), 
+                lambda n, x=x, t=t, diff_x=diff_x: n * self.Iv(n) * self.t_term( n, t ) * self.x_N( n, x, diff_x ),
                 n=1
             )
 
     def D(self, x, t, diff_x = 0 ):
         return (self.I0 if diff_x == 0 else 0) +\
             2*AnalyticalSolution.sum_converge_array(
-                lambda n, x=x, t=t, diff_x=diff_x: self.Iv(n) * self.t_term( n, t ) * self.x_D( n, x, diff_x ), 
+                lambda n, x=x, t=t, diff_x=diff_x: self.Iv(n) * self.t_term( n, t ) * self.x_D( n, x, diff_x ),
                 n=1
             )
 
     def u(self, t, x ):
         return self.K * self.N(x,t)/self.D(x,t)
-    
+
     def du_dx(self, t, x ):
         '''
-        d(N/D) = dN/D - N/D**2*dD 
+        d(N/D) = dN/D - N/D**2*dD
                = (dN*D - N*dD)/D**2
         '''
-        return self.K * ( 
-            self.N(x,t,1)*self.D(x,t) 
-            - self.N(x,t)*self.D(x,t,1) 
+        return self.K * (
+            self.N(x,t,1)*self.D(x,t)
+            - self.N(x,t)*self.D(x,t,1)
             )/self.D(x,t)**2
 
     def d2u_dx2(self, x, t ):
@@ -223,23 +223,23 @@ class AnalyticalSolution:
         '''
         return self.K* (
             self.N(x,t,2) * self.D(x,t)**2
-            - 2*self.D(x,t) * self.N(x,t,1)*self.D(x,t,1) 
+            - 2*self.D(x,t) * self.N(x,t,1)*self.D(x,t,1)
             - self.N(x,t) * self.D(x,t) * self.D(x,t,2)
             + 2*self.N(x,t)*self.D(x,t,1)**2
             )/self.D(x,t)**3
-        
+
     def d3u_dx3(self, x, t ):
         return self.K* (
             self.N(x,t,3) * self.D(x,t)**3
-            - 3*self.D(x,t)**2*self.N(x,t,2)*self.D(x,t,1) 
-            - 3*self.D(x,t)**2*self.N(x,t,1)*self.D(x,t,2) 
+            - 3*self.D(x,t)**2*self.N(x,t,2)*self.D(x,t,1)
+            - 3*self.D(x,t)**2*self.N(x,t,1)*self.D(x,t,2)
             + 6*self.D(x,t)*self.N(x,t,1)*self.D(x,t,1)**2
             - self.N(x,t)*self.D(x,t,3)*self.D(x,t)**2
             - 6*self.N(x,t)*self.D(x,t,1)**3
             + 6*self.N(x,t)*self.D(x,t)*self.D(x,t,1)*self.D(x,t,2)
             )/self.D(x,t)**4
 
-            
+
 def diff_array( a, x ):
     return (a[2:] - a[:-2])/(x[2:] - x[:-2])
 
@@ -269,18 +269,18 @@ def calculate_h_dist( h, q, p, dt, N, dim = 1, eps = 1e-1 ):
     dist_h[dist_h < .1*fraction] = max(dist_h)
     #dist_h_min = min( dist_h, axis = 1 )
     dist_h_min = min( dist_h, axis = 0 )
-    
+
     hnew = array(h)
     #hnew[dist_h_min < fraction] *= dist_h_min[dist_h_min < fraction]/fraction
     hnew *= dist_h_min/fraction
     return hnew
-    
+
 import timeit
 
 colors = ['r','g','b','m','y','c']
 
 def generate_border( t, r, s, ds, h, method_smooth = 'self', method_sum = 'sum' ):
-    
+
     dists = None
     if method_smooth == 'self':
         H = h[_j]
@@ -310,7 +310,7 @@ def generate_border( t, r, s, ds, h, method_smooth = 'self', method_sum = 'sum' 
         dist = r[neighbors] - r[ind]
         mask = all( [abs(dist)>0, dist*uni[ind] > 0 ], axis=0 )
         newr = append( newr, r[ind] - dist[mask] )
-        
+
         delta = s[neighbors] - s[ind]
         news = append( news, s[ind] - delta[mask] )
 
@@ -325,20 +325,20 @@ def generate_border( t, r, s, ds, h, method_smooth = 'self', method_sum = 'sum' 
 
     #print('newr',newr)
     return newt, newr, news, newds, newh, -1*ones_like(newr)
-    
+
 
 def merge( r, p, h, status, fuse=False ):
     fraction = .2
     inds = argwhere( h[status==0] < fraction*h0 )
     print( 'h<h0', inds.flatten() , end='; ')
     return r, p, h, status
-    
+
     for ind in inds:
         print( 'h/h0', h[ind]/h0, 'id', ind )
-    
+
     neighbors = argwhere( abs(r-r[ind]) < .5*fraction*h0 )
     print( 'neighbors', neighbors.flatten() )
-    
+
     if h[ind] > fraction*h0:
         return r, p, h, status
 
@@ -348,13 +348,13 @@ def merge( r, p, h, status, fuse=False ):
         p[neighbors] = mean( p[neighbors] )
         h[neighbors] = mean( h[neighbors] )
         return r, p, h, status
-    
+
     print( 'before', r[ind], p[ind], h[ind] )
     r[ind] = mean( r[neighbors] )
     #p[ind] = mean( p[neighbors] )
     #h[ind] = mean( h[neighbors] )
     print( 'after', r[ind], p[ind], h[ind] )
-    
+
     print( 'merge!!!' )
 
     print( 'before', r.shape )
@@ -373,7 +373,7 @@ class BaseInterpolator:
         self.i = ((r - np.amin(r, axis=1))/self.h).astype(int)
         print( 'max', np.amax(self.i, axis=1) )
         #self.neighbors = np.zeros( () )
-        
+
 
 class BaseSPH:
     def __init__( self, h0, W, density, phi='ref' ):
@@ -384,7 +384,7 @@ class BaseSPH:
             self.phi = self.ref
         if phi == 'id':
             self.phi = self.id
-    
+
     def interpolation( self, f, r, D=0, function=False ):
         W = self.W[D]
         def inner( x ):
@@ -394,7 +394,7 @@ class BaseSPH:
                 val = W( x[_j], r[_i], self.h0 )*f[_i]
             else:
                 val = W( x[_j], r[_i], self.h0 )*f
-            
+
             valp = zeros_like(val)
             valp[val > 0] = val[val>0]
             valn = zeros_like(val)
@@ -407,7 +407,7 @@ class BaseSPH:
 
     def id( self, x, hx = None ):
         return x
-    
+
     def delta( self, r, D=0, power=1, function=False ):
         def inner( x ):
             if power == 0: diff = 1
@@ -430,29 +430,29 @@ class BaseSPH:
         else: diff = x[_i] - x[_j]
         if power < 0: diff[ diff == 0] = self.h0
         return self.interpolation( diff**power * f[_i]/self.phi(x)[_i], x, D=D )
-        
+
     def ref( self, x, r=None, D=0, function=False ):
         return self.interpolation( 1., x, D=D, function=function )
-    
+
     def sph( self, f, x, D=0, function=False ):
         return self.interpolation( f/self.phi(x), x, D=D, function=function )
-    
+
     def uni( self, x ):
         return self.delta( x )/self.deltaAbs( x )
-    
+
 class StandardSPH:
     def __init__( self, sph ):
         self.sph = sph
-    
+
     def diff( self, f, r ):
         return self.sph.sph( f, r, D=1 )
 
     def diff2( self, f, r ):
         return self.sph.sph( f, r, D=2 )
-        
+
     def interp( self, f, r ):
         return self.sph.sph( f, r, D=0 )
-    
+
 class KernelGradientFree:
     def compute_invM( self, r ):
         m = array( [[ self.sph.delta( r, power=i+j+self.basepower, D=0 ) for j in range(self.order)] for i in range(self.order) ] ).T
@@ -460,7 +460,7 @@ class KernelGradientFree:
         self.invM = zeros_like( m )
         self.invM[self.det > 0] = linalg.inv( m[self.det > 0] )
         return self.invM
-    
+
     def compute_V( self, f, r ):
         self.V = array([ self.sph.fdelta( f, r, power=i+self.basepower, D=0 ) for i in range(self.order) ] ).T
         return self.V
@@ -478,14 +478,14 @@ class KernelGradientFree:
         self.V = array([ self.sph.fdelta( f, r, power=i+self.basepower, D=0 ) for i in range(self.order) ]).T
         self.F = zeros_like( self.V )
         self.F[ self.det>0 ] = einsum( '...ij,...i->...j', self.invM[ self.det>0 ], self.V[ self.det>0 ] )
-        
+
         if sum( (self.det==0).astype(int) ) > 0:
             print( 'det==0', sum( (self.det==0).astype(int) ) )
             zeros = zeros_like( f[ self.det==0 ] )
             self.F[ self.det==0 ] = array([ f[ self.det==0 ] if i==0 else zeros for i in range(self.order) ]).T
 
         return self.F.T
-    
+
     def __init__( self, order = 4, basepower = 0, sph = None ):
         self.order = order
         self.basepower = basepower
@@ -495,10 +495,10 @@ class KernelGradientFree:
         self.invM = None
         self.V = None
         self.F = None
-    
+
     def diff( self, f, r ):
         return self.compute_F2( f, r )[1]
-    
+
     def interp( self, f, r ):
         return self.compute_F2( f, r )[0]
 
@@ -508,10 +508,10 @@ class Output:
 
     def figname( self ):
         return self.name.replace('.dat', '.png' )
-    
+
     def __del__( self ):
         Output.cleanLocks( os.path.dirname(self.name) )
-    
+
     def __init__( self, name ):
         self.name = name
         self.doneHeader = False
@@ -519,27 +519,27 @@ class Output:
             print('file is locked')
             exit(0)
         self.lock()
-        
+
     def lock(self):
         open( self.name+'.lock', 'w')
-    
+
     def islocked(self):
         return os.path.exists( self.name+'.lock' )
-    
+
     @staticmethod
     def cleanLocks( dir ):
         print( glob.glob( dir+'/*.lock' ) )
         for lock in glob.glob( dir+'/*.lock' ):
             print('removing lock', lock)
             os.remove( lock )
-        
+
     def header( self, N ):
         for s in [ 'r', 'u', 'u_smooth' ]:
             f = open( self.makeName(s), 'w' )
             f.write("# t " + ' '.join( map(lambda x: '%s[%d]'%(s,x), range(N) ) ) + '\n' )
             f.close()
         self.doneHeader = True
-    
+
     def write( self, t, r, u, u_smooth ):
         if not self.doneHeader:
             self.header( len(r) )
@@ -570,7 +570,7 @@ class Output:
         u = array(u)
         u_smooth = array(u_smooth)
         return t, r, u, u_smooth
-        
+
         #for s, arr in [ ('r', r), ('u', p) ]:
             #fname = 'plots/sph_%svst_%s'%(s, self.name)
             #f = open( fname, 'a' )
@@ -581,20 +581,20 @@ class Burger:
     def __init__(self, viscosityCoefficient = None, diff = None ):
         self.viscosityCoefficient = viscosityCoefficient
         self.diff = diff
-    
+
     def set_viscosityCoefficient( self, v ):
         self.viscosityCoefficient = v
         return self
-    
+
     def dot_r( self ):
         return lambda t, r, u: u #self.interp( u, r ) #u
-    
+
     def dot_u( self ):
         return lambda t, r, u: self.viscosityCoefficient * self.diff( self.diff(u,r), r )
-    
+
     def interp( self ):
         return lambda t, u, r: self.interpolator( u, r )
-            
+
     def set_diff( self, method ):
         self.interpolator = method.interp
         self.diff = method.diff
@@ -603,31 +603,31 @@ class Burger:
 class Hydro:
     def dot_r(self):
         return lambda t, r, u: u
-    
+
     def dot_u(self):
         return lambda t, r, u: - self.gradP(u,r)/self.s(u,r)
-    
+
     def gradP(self):
         return -( self.diff( self.P()/self.s(), r ) + self.P()/self.s()**2 * self.diff( self.s(), r ) )
-    
+
 class LagrangianSystem:
     def __init__( self ):
         self.dot_r = None
         self.dot_u = None
         self.loopnumber = 0
-        
+
     def set_timeStep( self, dt0 ):
         self.timeStep = dt0
         return self
-    
+
     def set_endTime( self, tf ):
         self.endTime = tf
         return self
-    
+
     def set_outputFile( self, out ):
         self.outputFile = Output
         return self
-    
+
     def set_equations( self, eqs ):
         self.dot_r = eqs.dot_r()
         self.dot_u = eqs.dot_u()
@@ -636,7 +636,7 @@ class LagrangianSystem:
     def set_interpolator( self, interpolator ):
         self.interp = interpolator.interp
         return self
-    
+
     def set_integrator( self, integrator ):
         self.timeIntegrator = integrator
         return self
@@ -649,35 +649,35 @@ class LagrangianSystem:
         print('r0shape', r0.shape)
         print('u0shape', self.u.shape)
         return self
-        
+
     def boundaryCondition( self, t, r, u ):
         u[0] = self.u[0]
         u[-1] = self.u[-1]
         r[0] = self.r[0]
         r[-1] = self.r[-1]
         return r, u
-    
+
     def addBoundary( self, t, r, u ):
         br1 = 2*r[0] - r[:5]
         br2 = 2*r[-1] - r[-5:]
         return r, u
-    
+
     def removeBoundary( self, t, r, u ):
         return r, u
 
     def integrate( self, fname, signal=None ):
-        
+
         t, r, u = float(self.t), self.r.copy(), self.u.copy()
 
         self.linklist(r,)
         print( 'r', len(r) )
         print( 'u', len(u) )
-        
+
         stream = Output( fname )
         stream.write(t,r,u,u)
 
         loopnumber = 0
-        
+
         while 1:
             loopnumber += 1
             print( '%d'%loopnumber, end=' ' )
@@ -687,7 +687,7 @@ class LagrangianSystem:
             r, u = self.boundaryCondition( t, r, u )
             r, u = self.fixCrossingPair( r, u )
             u_smooth = self.interp( u, r )
-            
+
             stream.write( t, r, u, u_smooth )
             elapsed = time.time() - t0
             print( 'clock %.2e (%.2e/N) t=%s'%( elapsed, elapsed/len(r), t ), end='; ' )
@@ -707,7 +707,7 @@ class LagrangianSystem:
         print( 'finished' )
         plotOutputs( stream )
         return
-    
+
     def fixCrossingPair( self, r, u ):
         ufix = u[:]
         n = 0
@@ -715,7 +715,7 @@ class LagrangianSystem:
             n+=1
             rnext = r + ufix*self.timeStep*2
             frozenCluster = zeros_like(r)
-            
+
             crossed = argwhere( rnext[1:] < rnext[:-1] ).T[0]
             if len(crossed) == 0:
                 return r, ufix
@@ -725,10 +725,10 @@ class LagrangianSystem:
                 if frozenCluster[cross] == 0:
                     frozenCluster[cross] = newCluster
                     frozenCluster[cross+1] = newCluster
-                    
+
                 else:
                     frozenCluster[cross+1] = frozenCluster[cross]
-            
+
             u_interp = self.interp( ufix, r )
             ufixnew = ufix[:]
             for i in range(1, int(max( frozenCluster ))+1 ):
@@ -738,7 +738,7 @@ class LagrangianSystem:
                 ufixnew[ args ] = u_interp[ args ]
             ufix = ufixnew[:]
         return r, ufix
-    
+
     def fixCrossing( self, r, u ):
         ufix = u.copy()
         n = 0
@@ -746,7 +746,7 @@ class LagrangianSystem:
             n+=1
             rnext = r + ufix*self.timeStep*2
             frozenCluster = zeros_like(r)
-            
+
             crossed = argwhere( rnext[1:] < rnext[:-1] ).T[0]
             if len(crossed) == 0:
                 return r, ufix
@@ -756,19 +756,19 @@ class LagrangianSystem:
                     newCluster = int(max( frozenCluster ))+1
                     if frozenCluster[cross-1] == 0 and frozenCluster[cross+1] == 0:
                         frozenCluster[cross] = newCluster
-                        
+
                     elif frozenCluster[cross-1] == 0:
                         frozenCluster[cross] = frozenCluster[cross+1]
-                        
+
                     elif frozenCluster[cross+1] == 0:
                         frozenCluster[cross] = frozenCluster[cross-1]
-                    
+
                     elif frozenCluster[cross-1] < frozenCluster[cross+1]:
                         frozenCluster[cross] = frozenCluster[cross-1]
-                    
+
                     else:
                         frozenCluster[cross] = frozenCluster[cross+1]
-            
+
             for i in range(1, int(max( frozenCluster ))+1 ):
                 args = argwhere( frozenCluster == i )
                 if len(args) == 0: continue
@@ -781,7 +781,7 @@ def append( d, e, v ):
         d[e].append(v)
     else:
         d[e] = [v]
-    return 
+    return
 
 def readFile( fname ):
     data = open( fname, 'r' ).readlines()
@@ -796,7 +796,7 @@ def readFile( fname ):
     r = array(r)
     print('rshape', r.shape)
     return t, r
-    
+
 def plotOutputs( stream ):
     plt.rcParams['font.size'] = 12.
     plt.rcParams['font.family'] = "serif"
@@ -830,7 +830,7 @@ def plotOutputs( stream ):
     axprofile.set_ylabel( r'u[smooth](t)' )
     #axu.set_xlabel( r'u(t)' )
     axprofile.legend( fancybox=True, framealpha=0 )
-    
+
     plt.setp(axu.get_yticklabels(), visible=False)
     plt.setp(axr.get_xticklabels(), visible=False)
     #plt.setp(axu.get_yticklabels(), visible=False)
@@ -844,14 +844,14 @@ def plotOutputs( stream ):
     plt.close()
 
 class SimulationApp(Gtk.Window):
-    
+
     def __init__(self):
         Gtk.Window.__init__( self, title="SPH Simulation" )
         Output.cleanLocks( 'simulations/' )
         self.connect( 'destroy', Gtk.main_quit )
         self.set_border_width(3)
         self.maximize()
-        
+
         self.vbox = Gtk.VBox()
 
         self.simulationPanels = []
@@ -863,14 +863,14 @@ class SimulationApp(Gtk.Window):
         self.createSimulationPanel( self.simulationPanels )
         self.createSimulationPanel( self.simulationPanels )
         self.createSimulationPanel( self.simulationPanels, empty = True )
-        
+
         scrolled = Gtk.ScrolledWindow()
         scrolled.add_with_viewport( self.vbox )
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.add( scrolled )
-            
+
         self.show_all()
-    
+
     def onaddclicked( self, widget ):
         self.simulationPanels[-1].destroy()
         del self.simulationPanels[-1]
@@ -885,7 +885,7 @@ class SimulationApp(Gtk.Window):
         del self.simulationPanels[ ind ]
         del self.paramsEntry[ ind ]
         self.show_all()
-        
+
     def createSimulationPanel(self, panel, empty = False):
         box = Gtk.HBox()
         panel.append( box )
@@ -897,11 +897,11 @@ class SimulationApp(Gtk.Window):
             box.pack_start( button,  False, False, 3 )
             button.set_label(' + ')
             button.connect( 'clicked', self.onaddclicked )
-            return 
-        
+            return
+
         options = Gtk.VBox()
         box.pack_start( options, False, False, 3 )
-        
+
         firstLine = Gtk.HBox()
         title = Gtk.Label()
         destroyButton = Gtk.Button()
@@ -913,7 +913,7 @@ class SimulationApp(Gtk.Window):
         title.set_label('simulation')
         destroyButton.set_label(' x ')
         destroyButton.connect( 'clicked', self.onminusclicked, box )
-        
+
         secondLine = Gtk.HBox()
         thirdLine = Gtk.HBox()
         fourthLine = Gtk.HBox()
@@ -957,12 +957,12 @@ class SimulationApp(Gtk.Window):
             self.paramsEntry[-1]['v'].set_text( self.paramsEntry[-2]['v'].get_text() )
             self.paramsEntry[-1]['IC'].set_text( self.paramsEntry[-2]['IC'].get_text() )
             self.paramsEntry[-1]['SPH'].set_text( self.paramsEntry[-2]['SPH'].get_text() )
-        
+
         runButton = Gtk.Button()
         options.pack_end(runButton, False, False, 3 )
         runButton.set_label('run')
         runButton.connect( 'clicked', self.onclickrun, len(panel)-1 )
-        
+
         self.images.append( Gtk.Image() )
         self.pixbufs.append( None )
         #scrolled = Gtk.ScrolledWindow()
@@ -976,7 +976,7 @@ class SimulationApp(Gtk.Window):
         self.images[panelIndex].set_from_pixbuf( GdkPixbuf.Pixbuf.new_from_file(figname) )
         print('signal', figname )
         self.images[panelIndex].show()
-        
+
     def onclickrun( self, widget, panelIndex ):
         print( 'run panelIndex', panelIndex )
         L = 1.
@@ -1002,7 +1002,7 @@ class SimulationApp(Gtk.Window):
         system.set_endTime( 1. )
         r0 = np.array( [ [2*L/N*i, 2*L/N*j] for i in range(N) for j in range(N)] )
         system.set_initialCondition( r0 = r0, u0 = ic )
-        
+
         burger = Burger()
         burger.set_viscosityCoefficient( v )
         if sph_str.startswith('standard'):
@@ -1018,7 +1018,7 @@ class SimulationApp(Gtk.Window):
         system.set_equations( burger )
         system.set_interpolator( interpolator )
         system.set_integrator( TimeIntegrators.Sympletic.RungeKutta4 )
-        
+
         def run():
             return system.integrate( outname, signal=lambda: GLib.idle_add( lambda panelIndex=panelIndex, figname=figname: self.refreshImage(panelIndex, figname) ) )
         self.threads.append( threading.Thread(target=run) )
@@ -1031,7 +1031,7 @@ norm = lambda x, loc=0, scale=1.: exp(-.5*(x-loc)**2/scale**2)/sqrt(2*pi)/scale
 import itertools
 def array_to_int( r, h=1 ):
     return np.rint(r/h).astype(int)
-    
+
 def array_to_int_tuple( r, h=1):
     return tuple(array_to_int(r,h))
 
@@ -1046,9 +1046,9 @@ def build_sum2( positions, h, d=1, radius=2 ):
     particle_bins = array_to_int( positions, h )
     unique = np.unique( particle_bins, axis=0 )
     print( 'particles/bins', float(len(positions))/len(unique) )
-    
+
     relative_bin_shifts = get_relative_bin_shifts( d, radius )
-    
+
     indexes_bin = {}
     number_of_occupied_bins = 0
     for particle_index, particle_bin in enumerate( particle_bins ):
@@ -1070,7 +1070,7 @@ def build_sum2( positions, h, d=1, radius=2 ):
     indexes_bin = { key: index_bin for key, index_bin in indexes_bin.items() if len(index_bin['in']) > 0 }
     lengths = [ len(v['around']) for k, v in indexes_bin.items() ]
     print( 'link list', min(lengths), max(lengths), np.median(lengths), len(lengths) )
-    
+
     def __sum__( W, v = None ):
         if v is None:
             v = np.ones( len(positions) )
@@ -1079,7 +1079,7 @@ def build_sum2( positions, h, d=1, radius=2 ):
             dists = dist_vectorized( positions[ bin_indexes['in'] ], positions[ bin_indexes['around'] ] )
             ret[ bin_indexes['in'] ] = np.sum( v[ bin_indexes['around'] ][:,None] * W( dists ), axis=0 )
         return ret
-    
+
     return __sum__
 
 
@@ -1091,7 +1091,7 @@ def build_sum( positions, h, d, dist, radius=2 ):
     print( 'particles/bins', float(len(positions))/len(occupied_bins) )
 
     relative_bin_shifts = get_relative_bin_shifts( d, radius )
-    
+
     indexes_bin = { tuple(occupied_bin): {'in':[], 'around':[]} for occupied_bin in occupied_bins }
     first = True
     for bin_index, occupied_bin in enumerate(occupied_bins):
@@ -1105,10 +1105,10 @@ def build_sum( positions, h, d, dist, radius=2 ):
                 indexes_bin[around_bin]['around'].extend( particle_indexes )
             except KeyError:
                 pass
-    
+
     lengths = [ len(v['around']) for k, v in indexes_bin.items() ]
     print( 'link list statistics', np.median(lengths), len(lengths) )
-    
+
     def __sum__( v = None, W = None, prime = False ):
         if v is None:
             v = np.ones( len(positions) )[:,None]
@@ -1162,7 +1162,7 @@ def run_simulation():
     #print( 'list index 0', link_list[ array_to_int_tuple(r[0],h) ] )
     W = kernel.derivatives('qspline', d)
     print(interpolation( r, h, W[0], r[0], 1 ))
- 
+
     L = 1.
     u_0 = 1.
     N = 251
@@ -1175,7 +1175,7 @@ def run_simulation():
     system.set_timeStep( .01 )
     system.set_endTime( 3. )
     system.set_initialCondition( r0 = np.reshape( linspace( 0., 2.*L, N ), (-1,1) ), u0 = lambda x: u0( x, u_0, L ) )
-    
+
     if False:
         anaSol = AnalyticalSolution( v )
         def AnalyticalIntegrator( dot_r, dot_u ):
@@ -1232,7 +1232,7 @@ class Base:
         self.name = name
         self.array = array
         self.signature = signature
-    
+
     def __getitem__( self, axes ):
         if not type(axes) is tuple: axes = (axes,)
         indices = []
@@ -1250,14 +1250,14 @@ class Base:
                 slices[ind] = slice(None)
             if not ind.signature is t:
                 raise Exception('signature mismatch %s and %s' %(t, ind.signature) )
-                
+
         #print( 'getitem', slices )
         return Indexed( self, slices, indices )
 
     def __setitem__( self, axes, expr ):
         print( 'setitem {}'.format(self.name), axes, expr )
         self.array = expr.eval( axes )
-        
+
     def __str__(self):
         print('str')
         return str(self.array)
@@ -1271,7 +1271,7 @@ class Indexed:
         self.base = base
         self.slices = slices
         self.indices = indices
-    
+
     def __repr__(self):
         return '%s[%s]' % ( self.base.name, ','.join(map(repr,self.indices)) )
         #return '%s' % ( self.base.name )
@@ -1283,7 +1283,7 @@ class Indexed:
     def __setitem__(self, s, val):
         print( 'Indexed setitem {}'.format(self.base.name), s, val )
         return self.base.array[s]
-    
+
     def __mul__(self, other):
         return Expr( Mul, (self, other) )
 
@@ -1294,19 +1294,19 @@ class Function:
     def __init__(self, name, func):
         self.name = name
         self.func = func
-        
+
     def __call__(self, *args):
         return Expr( self, args )
 
 Add = Function('add', lambda x,y: x+y )
 Mul = Function('mul', lambda x,y: x*y )
-        
+
 class Expr:
     def __init__( self, func, args ):
         #print('constructed expr', func, args )
         self.func = func
         self.args = args
-    
+
     def eval( self, axes, level=0 ):
         if type(axes) is not tuple: axes = (axes,)
         if level is 0: print('eval')
@@ -1322,11 +1322,11 @@ class Expr:
         ret = self.func( *new_args )
         #print( 'ret', ret.shape )
         return ret
-    
+
     def __repr__( self ):
         #print( self.args )
         return '%s(%s)' %(self.func.name, ', '.join( map( repr, self.args )) )
-    
+
     def __mul__( self, other ):
         return Expr( Mul, (self, other) )
 
@@ -1337,22 +1337,22 @@ class Index:
     def __init__(self, name, signature):
         self.name = name
         self.signature = signature
-    
+
     def __repr__(self):
         return '%s' % (self.name)
 
 class BaseSum:
     def __init__(self):
         pass
-    
+
     def __getitem__(self, axis):
         return lambda expr: Expr( Sum(axis), expr )
-                
-    
+
+
 def get_neighbor_positions( particle_position, all_positions, link_list, h ):
     neighbor_indexes = link_list[ array_to_int_tuple( particle_position, h) ]
     return all_positions[ neighbor_indexes ]
-    
+
 def get_h( number_of_fluid_elements, fluid_elements_per_bin, volume, d ):
     number_of_bins = float(number_of_fluid_elements)/(fluid_elements_per_bin/5.**d)
     h = np.power( volume/number_of_bins, 1./d )
@@ -1378,8 +1378,8 @@ def generateIC( e, N, h ):
     while True:
         new_r = random.uniform( e.shape )
         test = random.uniform( new_r.size )
-        
-        
+
+
 
 def test_link_list():
     L = np.array([1,1,1])
@@ -1392,10 +1392,10 @@ def test_link_list():
     print('h',h)
     N = 10
     mask = slice( None,N )
-    
+
     positions, velocities = generate_IC( mode='random', dimension=d, number_of_fluid_elements = number_of_fluid_elements )
     print( 'shape', positions.shape, np.prod(L), number_of_bins, number_of_fluid_elements/number_of_bins )
-    
+
     with Timer('brute force') as timer:
         dists =  dist( positions[None,:N,:], positions[:,None,:] )
         ret = np.sum( kernel.cspline_weave( dists, d, h ), axis = 0 )
@@ -1431,7 +1431,7 @@ def test_link_list():
                 print( 'F', F[mask], F.shape )
             dv_dt = -F
             dr_dt = velocities
-            
+
             positions += dr_dt * dt
             velocities += dv_dt * dt
     print()
@@ -1444,10 +1444,10 @@ def test_IC():
     xv = meshgrid( *ix )
     e = scipy.stats.norm.pdf(xv[0])*scipy.stats.norm.pdf(xv[1])
     print( e.shape )
-    
+
     e_max = amax(e)
     print( e )
-    print( e[Lx/2,Lx/2]/e_max ) 
+    print( e[Lx/2,Lx/2]/e_max )
     Nelements = 10
     print( len(L) )
     r = random.random( size=Nelements*len(L) ).reshape( (len(L),-1) )*(L[:,1] - L[:,0])[:,None] + L[:,0][:,None]
@@ -1473,7 +1473,7 @@ class System:
         print( 'particles/bins', float( self.size )/len(occupied_bins) )
 
         relative_bin_shifts = get_relative_bin_shifts( d, radius )
-        
+
         indexes_bin = { tuple(occupied_bin): {'in':[], 'around':[]} for occupied_bin in occupied_bins }
         first = True
         for bin_index, occupied_bin in enumerate(occupied_bins):
@@ -1487,10 +1487,10 @@ class System:
                     indexes_bin[around_bin]['around'].extend( particle_indexes )
                 except KeyError:
                     pass
-        
+
         lengths = [ len(v['around']) for k, v in indexes_bin.items() ]
         print( 'link list statistics', np.median(lengths), len(lengths) )
-        
+
         def __sum__( v = None, W = None, prime = False ):
             if v is None:
                 v = np.ones_like( self.r )[:,None]
@@ -1514,7 +1514,7 @@ class System:
                     ret[ bin_indexes['in'] ] = sum( v[ bin_indexes['around'] ][:,:,None] * directions * W( dists )[:,:,None], axis=0 )
             return ret
         return __sum__
-    
+
     @property
     def r(self):
         return self.__r
@@ -1522,26 +1522,26 @@ class System:
     @property
     def p(self):
         return self.__p
-    
+
     def sum(self, a):
         return sum( a, axis=1 )
-        
+
     @property
     def dr_dt(self):
-        try: 
+        try:
             return self.__dr_dt
         except AttributeError:
             self.__dr_dt = self.p#/self.rho[:,None]**2
             return self.__dr_dt
-    
+
     @property
     def dp_dt(self):
-        try: 
+        try:
             return self.__dp_dt
         except AttributeError:
             self.__dp_dt = -self.sum( ( self.F[None,:,None] + self.F[:,None,None] ) * self.gradW(self.r, self.r) )
             return self.__dp_dt
-    
+
     @property
     def F(self):
         try:
@@ -1557,15 +1557,15 @@ class System:
         except AttributeError:
             self.__P = self.rho**(4./3)
             return self.__P
-    
+
     @property
     def e(self):
         return 3*self.P
-    
+
     @property
     def pSqr(self):
         return sum(self.p**2, axis=-1)
-    
+
     @property
     def rho(self):
         try:
@@ -1574,12 +1574,12 @@ class System:
             self.__rho = self.sum( self.W(self.r, self.r) )
             #print( 'rho.shape', self.__rho.shape )
             return self.__rho
-    
+
     def W(self, x, x2):
         diffs = x[:,None,:] - x2[None,:,:]
         dists = sqrt( sum(diffs**2, axis=-1) )
         return self.kernel( dists )
-    
+
     #@property
     #def W(self):
         #try:
@@ -1594,8 +1594,8 @@ class System:
         dirs = diffs
         dirs[ dists!=0 ] /= dists[ dists!=0 ][:,None]
         return self.kernel_prime(dists)[:,:,None] * dirs
-        
-    
+
+
     @property
     def H(self):
         try:
@@ -1603,7 +1603,7 @@ class System:
         except AttributeError:
             self.__H = .5*sum( self.pSqr, axis=0 ) + sum( self.e/self.rho, axis=0 )
             return self.__H
-    
+
     @property
     def J(self):
         try:
@@ -1611,14 +1611,14 @@ class System:
         except AttributeError:
             self.__J = sum( self.p, axis=0 )
             return self.__J
-    
+
     @property
     def v(self):
         try:
             return self.__v
         except AttributeError:
             self.__v = self.p/self.rho**2
-        
+
     def ascii_e(self, a, b, l=100):
         x = linspace(a, b, l)
         W = self.kernel( abs(x[:,None] - self.r[None,:,0]) )
@@ -1636,7 +1636,7 @@ class System:
                 line2[r__] = '%c' % chars[i % len(chars)]
         line2 = ''.join(line2)
         return '\n'.join((line1,line2))
-    
+
     def ascii_e_2d(self, a, b, l=100, e_max=None):
         if e_max is None:
             e_max = amax(self.e)
@@ -1676,16 +1676,16 @@ class System:
 
 def collision_test():
     N = 1000
-    ri = scipy.stats.norm.rvs(0,.1, N)
-    rj = scipy.stats.norm.rvs(0,.1, N)
-    r1 = array([[ri_-.8,rj_,0] for ri_, rj_ in zip(ri,rj) ]).astype(float)
-    p1 = array([[20,0,0] for ri_,rj_ in zip(ri,rj) ]).astype(float)
+    ri = scipy.stats.norm.rvs(0, .1, N)
+    rj = scipy.stats.norm.rvs(0, .1, N)
+    r1 = array( [[ri_-.8,rj_,0] for ri_, rj_ in zip(ri,rj)] ).astype(float)
+    p1 = array( [[20,0,0] for ri_,rj_ in zip(ri,rj)] ).astype(float)
 
-    ri = scipy.stats.norm.rvs(0,.1, N)
-    rj = scipy.stats.norm.rvs(0,.1, N)
-    r2 = array([[ri_+.8,rj_,0] for ri_, rj_ in zip(ri,rj) ]).astype(float)
-    p2 = array([[-20,0,0] for ri_,rj_ in zip(ri,rj) ]).astype(float)
-    
+    ri = scipy.stats.norm.rvs(0, .1, N)
+    rj = scipy.stats.norm.rvs(0, .1, N)
+    r2 = array( [[ri_+.8,rj_,0] for ri_, rj_ in zip(ri,rj)] ).astype(float)
+    p2 = array( [[-20,0,0] for ri_,rj_ in zip(ri,rj)] ).astype(float)
+
     r = concatenate( (r1,r2) )
     p = concatenate( (p1,p2) )
     print( 'r.shape', r.shape )
@@ -1697,10 +1697,10 @@ def collision_test():
     #W_prime = kernel.generate_liq_prime( dim, h )
     W = kernel.generate_cspline( dim, h )
     W_prime = kernel.generate_cspline_prime( dim, h )
-    
+
     p_next = p
     r_next = r
-    
+
     #c = [1, -2./3, 2./3]
     #d = [-1./24, 3./4, 7./24]
 
@@ -1716,7 +1716,7 @@ def collision_test():
         1./(2-2**(1./3)),
         0
         ]
-    
+
     system = System( r, p, W, W_prime )
     H0 = system.H
     e_max = amax(system.e)
@@ -1745,12 +1745,12 @@ def collision_test():
         p_next = p
         r_next = r
         system.ascii_e_2d( -L, L, 70, None)
-        print( 't=', t, 
-              '[{}]'.format( (system.H-H0)/H0 ), 
-              'pmax', amax(sqrt(system.pSqr)), 
+        print( 't=', t,
+              '[{}]'.format( (system.H-H0)/H0 ),
+              'pmax', amax(sqrt(system.pSqr)),
               'vmax', amax(sqrt(sum(system.dr_dt**2, axis=-1)))
               )
-                    
+
 if __name__ == '__main__':
     #test_link_list()
     #test_IC()
