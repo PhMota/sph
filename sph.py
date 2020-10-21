@@ -1454,13 +1454,13 @@ def test_IC():
     print( r.shape )
 
 class System:
-    def __init__( self, r, p, kernel, kernel_prime ):
-        if len(r) != len(p):
+    def __init__( self, positions, canonical_momenta, kernel, kernel_prime ):
+        if len(positions) != len(canonical_momenta):
             print( 'different sizes')
             exit(0)
-        self.__r = r
-        self.__p = p
-        self.size = len(r)
+        self.__positions = positions
+        self.__canonical_momenta = canonical_momenta
+        self.size = len(self.__positions)
         self.kernel = kernel
         self.kernel_prime = kernel_prime
         return
@@ -1514,52 +1514,106 @@ class System:
                     ret[ bin_indexes['in'] ] = sum( v[ bin_indexes['around'] ][:,:,None] * directions * W( dists )[:,:,None], axis=0 )
             return ret
         return __sum__
+
+    def build_sum_mod( self, support, dimension, distance_func, radius=2 ):
+        digitized_positions = map( tuple, rint(self.positions/support).astype(int) )
+
+        particle_bins_tuple = map( tuple, particle_bins )
+        occupied_bins, indexes_in_bin = np.unique( digitized_positions, axis=0, return_inverse = True )
+        print( 'particles/bins', float( self.size )/len(occupied_bins) )
+
+        relative_bin_shifts = get_relative_bin_shifts( dimension, radius )
+        
+        indexes_in_bin = { tuple(occupied_bin): [] for occupied_bin in occupied_bins }
+        indexes_of_neighbors = { tuple(occupied_bin): [] for occupied_bin in occupied_bins }
+        first = True
+        for bin_index, occupied_bin in enumerate( occupied_bins ):
+            indexes_in_this_bin = np.nonzero( indexes_in_bin == bin_index )[0].tolist()
+
+            indexes_in_bin[occupied_bin].extend( indexes_in_this_bin )
+
+            for relative_bin_shift in relative_bin_shifts:
+                around_bin = tuple( occupied_bin + relative_bin_shift )
+                try:
+                    indexes_of_neighbors[around_bin].extend( indexes_in_this_bin )
+                except KeyError:
+                    pass
+        
+        lengths = [ len(v['around']) for k, v in indexes_bin.items() ]
+        print( 'link list statistics', np.median(lengths), len(lengths) )
+        
+        def __sum__( v = None, W = None, prime = False ):
+            if v is None:
+                v = np.ones_like( self.r )[:,None]
+            elif type(v) is float:
+                v = v*np.ones_like( self.r )[:,None]
+            elif len(v.shape) == 1:
+                v = v[:,None]
+            else:
+                raise Exception( 'error %s' % type(v) )
+            if not prime:
+                ret = np.zeros_like( self.positions )
+                for bin_indexes in indexes_bin.values():
+                    distances = distance_function( self.postions[ indexes_in_bin[occupied_bin] ], self.positions[ indexes_of_neighbors[ occupied_bin ] ] )
+                    ret[ indexes_in_bin[occupied_bin] ] = sum( v[ indexes_in_bin[occupied_bin] ] * W( distances ), axis=0 )
+            else:
+                ret = np.zeros_like( self.r )
+                for bin_indexes in indexes_bin.values():
+                    dists = dist_func( self.r[ bin_indexes['in'] ], self.r[ bin_indexes['around'] ] )
+                    directions = self.r[ bin_indexes['in'] ][None,:,:] - self.r[ bin_indexes['around'] ][:,None,:]
+                    directions[ dists>0 ] /= dists[:,:,None][ dists>0 ]
+                    ret[ bin_indexes['in'] ] = sum( v[ bin_indexes['around'] ][:,:,None] * directions * W( dists )[:,:,None], axis=0 )
+            return ret
+        return __sum__
     
     @property
-    def r(self):
-        return self.__r
+    def positions(self):
+        return self.__positions
 
     @property
     def p(self):
-        return self.__p
+        return self.__canonical_momenta
     
     def sum(self, a):
+        return sum( a, axis=1 )
+
+    def system_summation(self, a):
         return sum( a, axis=1 )
         
     @property
     def dr_dt(self):
         try: 
-            return self.__dr_dt
+            return self.__positions_time_differentials
         except AttributeError:
-            self.__dr_dt = self.p#/self.rho[:,None]**2
-            return self.__dr_dt
+            self.__positions_time_differential = self.p#/self.rho[:,None]**2
+            return self.__positions_time_differential
     
     @property
     def dp_dt(self):
         try: 
-            return self.__dp_dt
+            return self.__canonical_momenta_time_differential
         except AttributeError:
-            self.__dp_dt = -self.sum( ( self.F[None,:,None] + self.F[:,None,None] ) * self.gradW(self.r, self.r) )
-            return self.__dp_dt
+            self.__canonical_momenta_time_differential = -self.sum( ( self.F[None,:,None] + self.F[:,None,None] ) * self.gradW(self.r, self.r) )
+            return self.__canonical_momenta_time_differential
     
     @property
     def F(self):
         try:
-            return self.__F
+            return self.__forces
         except AttributeError:
-            self.__F = self.P/self.rho**2# - self.pSqr/self.rho**3
-            return self.__F
+            self.__forces = self.P/self.neighbor_densities**2# - self.pSqr/self.rho**3
+            return self.__forces
 
     @property
     def P(self):
         try:
-            return self.__P
+            return self.__pressures
         except AttributeError:
-            self.__P = self.rho**(4./3)
-            return self.__P
+            self.__pressures = self.neighbor_densities**(4./3)
+            return self.__pressures
     
     @property
-    def e(self):
+    def energy_densities(self):
         return 3*self.P
     
     @property
@@ -1567,13 +1621,13 @@ class System:
         return sum(self.p**2, axis=-1)
     
     @property
-    def rho(self):
+    def neighbor_densities(self):
         try:
-            return self.__rho
+            return self.__neighbor_densities
         except AttributeError:
-            self.__rho = self.sum( self.W(self.r, self.r) )
+            self.__neighbor_densities = self.sum( self.W(self.r, self.r) )
             #print( 'rho.shape', self.__rho.shape )
-            return self.__rho
+            return self.__neighbor_densities
     
     def W(self, x, x2):
         diffs = x[:,None,:] - x2[None,:,:]
@@ -1597,12 +1651,12 @@ class System:
         
     
     @property
-    def H(self):
+    def Hamiltonian(self):
         try:
-            return self.__H
+            return self.__Hamiltonian
         except AttributeError:
-            self.__H = .5*sum( self.pSqr, axis=0 ) + sum( self.e/self.rho, axis=0 )
-            return self.__H
+            self.__Hamiltonian = .5*sum( self.pSqr ) + sum( self.energy_densities/self.neighbor_densities )
+            return self.__Hamiltonian
     
     @property
     def J(self):
@@ -1686,20 +1740,22 @@ def collision_test():
     r2 = array([[ri_+.8,rj_,0] for ri_, rj_ in zip(ri,rj) ]).astype(float)
     p2 = array([[-20,0,0] for ri_,rj_ in zip(ri,rj) ]).astype(float)
     
-    r = concatenate( (r1,r2) )
-    p = concatenate( (p1,p2) )
-    print( 'r.shape', r.shape )
-    print( 'p.shape', p.shape )
-    dim = r.shape[1]
-    h = .05
-    dt = h/10.
+    positions = concatenate( (r1,r2) )
+    canonical_momenta = concatenate( (p1,p2) )
+    print( 'r.shape', positions.shape )
+    print( 'p.shape', canonical_momenta.shape )
+    dimension = positions.shape[1]
+    support = .05
+    time_step = support/10.
+    
     #W = kernel.generate_liq( dim, h )
     #W_prime = kernel.generate_liq_prime( dim, h )
-    W = kernel.generate_cspline( dim, h )
-    W_prime = kernel.generate_cspline_prime( dim, h )
     
-    p_next = p
-    r_next = r
+    kernel_function = kernel.generate_cspline( dimension, support )
+    kernel_function_derivative = kernel.generate_cspline_prime( dimension, support )
+    
+    next_canonical_momenta = canonical_momenta
+    next_positions = positions
     
     #c = [1, -2./3, 2./3]
     #d = [-1./24, 3./4, 7./24]
@@ -1717,20 +1773,20 @@ def collision_test():
         0
         ]
     
-    system = System( r, p, W, W_prime )
-    H0 = system.H
-    e_max = amax(system.e)
-    t = 0
+    system = System( positions, canonical_momenta, kernel_function, kernel_function_derivative )
+    initial_Hamiltonian = system.Hamiltonian
+    maximal_energy_density = amax( system.energy_densities )
+    time = 0
     L = 1
     while True:
         for i, (ci, di) in enumerate(zip(c, d)):
             print( i )
-            system = System( r_next, p_next, W, W_prime )
-            r_next = system.r + ci*dt*system.dr_dt
-            system = System( r_next, p_next, W, W_prime )
-            p_next = system.p + di*dt*system.dp_dt
-        t += dt
-        #print( system.ascii_e(-1,1,100), '[{}]'.format( (system.H-H0)/H0 ) )
+            system = System( next_positions, next_canonical_momenta, W, W_prime )
+            next_positions = system.r + ci * time_step * system.dr_dt
+            system = System( next_positions, p_next, W, W_prime )
+            next_canonical_momenta = system.p + di * time_step * system.dp_dt
+        time += time_step
+
         r, p = system.r, system.p
         if amax( abs(r[:,0])) > L or amax( abs(r[:,1])) > L:
             L *= 2

@@ -7,13 +7,29 @@ import matplotlib
 #matplotlib.use('gtk3agg')
 
 from matplotlib import pylab as plt
+from scipy.sparse import csr_matrix
 
+from Timer import Timer
 '''
 exponential for pt
 dN_dpt = exp(-pt)
 '''
 
-class Data:
+def binned_statistic(x, values, func, nbins, range):
+    '''The usage is nearly the same as scipy.stats.binned_statistic''' 
+
+    r0, r1 = range
+
+    digitized = (float(nbins)/(r1 - r0)*(x - r0)).astype(int)
+    values = values[digitized < nbins].astype(float)
+    digitized = digitized[digitized < nbins]
+    
+    N = len(values)
+    S = csr_matrix((values, [digitized, arange(N)]), shape=(nbins, N))
+
+    return [func(group) for group in split(S.data, S.indptr[1:-1])]
+
+class Events:
     @property
     def harmonics(self):
         try:
@@ -62,7 +78,7 @@ class Data:
         except AttributeError:
             self.__pt_bins = arange( 0, self.maxpt+self.dpt, self.dpt )
         return self.__pt_bins
-    
+        
     @property
     def pt_center(self):
         try:
@@ -80,12 +96,18 @@ class Data:
         Q_n = array( [ [ Q( event.phi[ind == i] ) for i in bin_inds ] for ind, event in zip(inds, self.events) ] )
         return M, Q_n/(2*pi*self.dpt)
 
+    def compute_Q_n__csr( self ):
+        print('computing Q_n csr')
+        Q = lambda phi: sum( exp( (1j*self.harmonics[None,:] * phi[:,None]).astype(complex) ), axis=0 )
+        Q_n = array( [ binned_statistic(event.pt, event.phi, Q, len(self.pt_bins), [0, self.maxpt+self.dpt] ) for event in self.events ] )
+        return Q_n/(2*pi*self.dpt)
+
     @property
     def M_i_p(self):
         try:
             return self.__M_i_p
         except AttributeError:
-            self.__M_i_p, self.__Q_i_p_n = self.compute_Q_n()
+            self.__M_i_p, self.__Q_i_p_n = self.compute_Q_n__csr()
         return self.__M_i_p
 
     @property
@@ -186,7 +208,8 @@ class Data:
     
     def v_p(self, n, alpha):
         return self.v_n_p_alpha[n,:,alpha]
-    
+
+
 
 class plot:
     def __init__(self, fname):
@@ -234,7 +257,7 @@ def random_func2( y, f, f_max, a, b, N ):
         unassigned = isnan(x)
         if sum(unassigned) == 0:
             break
-    return array(x)
+    return array(x, dtype=float)
     
     
 def generate_particles_from_single( beta, collective_flow_func, N ):
@@ -263,7 +286,7 @@ v = [
     lambda p, p3max=p3max, v3max=v3max: (p3max**2 - (p-p3max)**2 )*v3max/p3max**2,
 ]
 
-data = Data()
+data = Events()
 number_of_harmonics = 3
 harmonics = arange(0, number_of_harmonics+1, 1)
 data.harmonics = harmonics
@@ -274,6 +297,13 @@ data.maxpt = 5.
 
 events = array( [ generate_particles_from_single( beta, v, N ) for i in range(Nevts) ], dtype=[('pt', object), ('phi', object)] ).view(recarray)
 data.events = events
+
+with Timer('csr'):
+    Q__scr = data.compute_Q_n__csr()
+    print( Q__scr.shape )
+with Timer('Q'):
+    _, Q = data.compute_Q_n()
+    print( Q.shape )
 
 
 with plot('M_p') as p:
@@ -286,17 +316,6 @@ with plot('M_p') as p:
 
 print( 'M(p)', std(data.M_i_p, axis=0) )
 
-#for n in range(4):
-    #with plot('V_nDelta{}_corr.png'.format(n)) as p:
-        #p.set_title(r'$V_{{ {}\Delta}}(p_1,p_2)$'.format(n))
-        #p.matshow( abs(data.V_p_p(n) ) )
-
-#for n in [2,3]:
-    #with plot('ReV{}_p_0_.png'.format(n)) as p:
-        #p.step( data.pt_center, data.V_p(n,0).real, label=r'$V_{}(p_t)^{{ (0) }}$'.format(n) )
-        #p.step( data.pt_center, data.V_p(n,1).real, label=r'$V_{}(p_t)^{{ (1) }}$'.format(n) )
-        #p.step( data.pt_center, data.V_p(n,2).real, label=r'$V_{}(p_t)^{{ (2) }}$'.format(n) )
-        #p.legend()
 
 for n in [2,3]:
     with plot('v{}_p_0_.png'.format(n)) as p:
