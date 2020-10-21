@@ -26,6 +26,33 @@ from gi.repository import Gtk, Gdk, GdkPixbuf, GObject, GLib
 from Timer import Timer
 import weave
 
+from scipy.sparse import csr_matrix
+
+def binned_statistic(x, values, func, nbins, range):
+    '''The usage is nearly the same as scipy.stats.binned_statistic'''
+
+    r0, r1 = range
+
+    digitized = (float(nbins)/(r1 - r0)*(x - r0)).astype(int)
+    values = values[digitized < nbins].astype(float)
+    digitized = digitized[digitized < nbins]
+
+    N = len(values)
+    S = csr_matrix((values, [digitized, arange(N)]), shape=(nbins, N))
+
+    return [func(group) for group in split(S.data, S.indptr[1:-1])]
+
+# def binned_statistic_fast(x, values, func, nbins, range):
+#     '''The usage is nearly the same as scipy.stats.binned_statistic'''
+#
+#     N = len(values)
+#     r0, r1 = range
+#
+#     digitized = (float(nbins)/(r1 - r0)*(x - r0)).astype(int)
+#     S = csr_matrix((values, [digitized, arange(N)]), shape=(nbins, N))
+#
+#     return [func(group) for group in split(S.data, S.indptr[1:-1])]
+
 class TimeIntegrators:
     @staticmethod
     def euler(f):
@@ -1674,6 +1701,7 @@ class System:
         print('e_max', e_max, end=' ')
         return
 
+
 def collision_test():
     N = 1000
     ri = scipy.stats.norm.rvs(0, .1, N)
@@ -1732,7 +1760,7 @@ def collision_test():
         t += dt
         #print( system.ascii_e(-1,1,100), '[{}]'.format( (system.H-H0)/H0 ) )
         r, p = system.r, system.p
-        if amax( abs(r[:,0])) > L or amax( abs(r[:,1])) > L:
+        if amax( abs(r[:,0]) ) > L or amax( abs(r[:,1]) ) > L:
             L *= 2
         #for a in range(len(r)):
             #for i in range(dim):
