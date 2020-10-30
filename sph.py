@@ -32,7 +32,6 @@ def binned_statistic(x, values, func, nbins, range):
     '''The usage is nearly the same as scipy.stats.binned_statistic'''
 
     r0, r1 = range
-
     digitized = (float(nbins)/(r1 - r0)*(x - r0)).astype(int)
     values = values[digitized < nbins].astype(float)
     digitized = digitized[digitized < nbins]
@@ -1492,113 +1491,70 @@ class System:
         self.kernel_prime = kernel_prime
         return
 
-    def build_sum( self, h, d, dist, radius=2 ):
-        particle_bins = array_to_int( self.r, h)
-
-        particle_bins_tuple = map( tuple, particle_bins )
-        occupied_bins, particle_indexes_in_bin = np.unique( particle_bins_tuple, axis=0, return_inverse = True )
-        print( 'particles/bins', float( self.size )/len(occupied_bins) )
-
-        relative_bin_shifts = get_relative_bin_shifts( d, radius )
-
-        indexes_bin = { tuple(occupied_bin): {'in':[], 'around':[]} for occupied_bin in occupied_bins }
-        first = True
-        for bin_index, occupied_bin in enumerate(occupied_bins):
-            particle_indexes = np.nonzero( particle_indexes_in_bin == bin_index )[0].tolist()
-            in_bin = tuple(occupied_bin)
-            indexes_bin[in_bin]['in'].extend( particle_indexes )
-
-            for relative_bin_shift in relative_bin_shifts:
-                around_bin = tuple( occupied_bin + relative_bin_shift )
-                try:
-                    indexes_bin[around_bin]['around'].extend( particle_indexes )
-                except KeyError:
-                    pass
-
-        lengths = [ len(v['around']) for k, v in indexes_bin.items() ]
-        print( 'link list statistics', np.median(lengths), len(lengths) )
-
-        def __sum__( v = None, W = None, prime = False ):
-            if v is None:
-                v = np.ones_like( self.r )[:,None]
-            elif type(v) is float:
-                v = v*np.ones_like( self.r )[:,None]
-            elif len(v.shape) == 1:
-                v = v[:,None]
-            else:
-                raise Exception( 'error %s' % type(v) )
-            if not prime:
-                ret = np.zeros_like( self.r )
-                for bin_indexes in indexes_bin.values():
-                    dists = dist( self.r[ bin_indexes['in'] ], self.r[ bin_indexes['around'] ] )
-                    ret[ bin_indexes['in'] ] = sum( v[ bin_indexes['around'] ] * W( dists ), axis=0 )
-            else:
-                ret = np.zeros_like( self.r )
-                for bin_indexes in indexes_bin.values():
-                    dists = dist( self.r[ bin_indexes['in'] ], self.r[ bin_indexes['around'] ] )
-                    directions = self.r[ bin_indexes['in'] ][None,:,:] - self.r[ bin_indexes['around'] ][:,None,:]
-                    directions[ dists>0 ] /= dists[:,:,None][ dists>0 ]
-                    ret[ bin_indexes['in'] ] = sum( v[ bin_indexes['around'] ][:,:,None] * directions * W( dists )[:,:,None], axis=0 )
-            return ret
-        return __sum__
-
-    def build_sum_mod( self, support, dimension, distance_func, radius=2 ):
+    def build_sum( self, support, dimension, distance_func, radius=2 ):
         digitized_positions = map( tuple, rint(self.positions/support).astype(int) )
 
-        particle_bins_tuple = map( tuple, particle_bins )
-        occupied_bins, indexes_in_bin = np.unique( digitized_positions, axis=0, return_inverse = True )
+        occupied_bins, inverse_indices = np.unique( digitized_positions, axis=0, return_inverse = True )
         print( 'particles/bins', float( self.size )/len(occupied_bins) )
 
         relative_bin_shifts = get_relative_bin_shifts( dimension, radius )
 
-        indexes_in_bin = { tuple(occupied_bin): [] for occupied_bin in occupied_bins }
-        indexes_of_neighbors = { tuple(occupied_bin): [] for occupied_bin in occupied_bins }
-        first = True
-        for bin_index, occupied_bin in enumerate( occupied_bins ):
-            indexes_in_this_bin = np.nonzero( indexes_in_bin == bin_index )[0].tolist()
+        # particles_in_bin = { tuple(occupied_bin): ([],[]) for occupied_bin in occupied_bins }
+        particles_in_bin = { tuple(occupied_bin): [] for occupied_bin in occupied_bins }
+        neighbor_particles_of_bin = { tuple(occupied_bin): [] for occupied_bin in occupied_bins }
 
-            indexes_in_bin[occupied_bin].extend( indexes_in_this_bin )
+        for bin_index, occupied_bin in enumerate( occupied_bins ):
+            particles = np.nonzero( inverse_indices == bin_index )[0].tolist()
+
+            particles_in_bin[occupied_bin].extend( particles )
 
             for relative_bin_shift in relative_bin_shifts:
                 around_bin = tuple( occupied_bin + relative_bin_shift )
                 try:
-                    indexes_of_neighbors[around_bin].extend( indexes_in_this_bin )
+                    # particles_in_bin[around_bin][1].extend( particles )
+                    neighbors_particles_of_bin[around_bin].extend( particles )
                 except KeyError:
                     pass
 
-        lengths = [ len(v['around']) for k, v in indexes_bin.items() ]
-        print( 'link list statistics', np.median(lengths), len(lengths) )
+        lengths = map(len, neighbors_particles_of_bin.values() )
+        print( 'link list statistics',
+                np.mean(lenghts),
+                np.median(lengths),
+                len(lengths)
+                )
 
-        def __sum__( v = None, W = None, prime = False ):
-            if v is None:
-                v = np.ones_like( self.r )[:,None]
-            elif type(v) is float:
-                v = v*np.ones_like( self.r )[:,None]
-            elif len(v.shape) == 1:
-                v = v[:,None]
-            else:
-                raise Exception( 'error %s' % type(v) )
-            if not prime:
-                ret = np.zeros_like( self.positions )
-                for bin_indexes in indexes_bin.values():
-                    distances = distance_function( self.postions[ indexes_in_bin[occupied_bin] ], self.positions[ indexes_of_neighbors[ occupied_bin ] ] )
-                    ret[ indexes_in_bin[occupied_bin] ] = sum( v[ indexes_in_bin[occupied_bin] ] * W( distances ), axis=0 )
-            else:
-                ret = np.zeros_like( self.r )
-                for bin_indexes in indexes_bin.values():
-                    dists = dist_func( self.r[ bin_indexes['in'] ], self.r[ bin_indexes['around'] ] )
-                    directions = self.r[ bin_indexes['in'] ][None,:,:] - self.r[ bin_indexes['around'] ][:,None,:]
-                    directions[ dists>0 ] /= dists[:,:,None][ dists>0 ]
-                    ret[ bin_indexes['in'] ] = sum( v[ bin_indexes['around'] ][:,:,None] * directions * W( dists )[:,:,None], axis=0 )
+        def __sum_W__( v = None, W = None, prime = False ):
+            ret = np.zeros_like( self.positions )
+            for occupied_bin in occupied_bins:
+                a = particles_in_bin[occupied_bin]
+                b = neighbor_particles_of_bin[occupied_bin]
+                r_a = self.positions[a]
+                r_b = self.positions[b]
+                distances = distance_function( r_a, r_b )
+                ret[a] = sum( v[b] * W( distances ), axis=0 )
             return ret
-        return __sum__
+
+        def __sum_W_prime__():
+            ret = np.zeros_like( self.positions )
+            for occupied_bin in occupied_bins:
+                a = particles_in_bin[occupied_bin]
+                b = neighbor_particles_of_bin[occupied_bin]
+                r_a = self.positions[a]
+                r_b = self.positions[b]
+                distances = distance_function( r_a, r_b )
+                directions = direction_function( r_a, r_b )
+                directions[ distances>0 ] /= distances[:,:,None][ distances>0 ]
+                ret[a] = sum( v[b] * directions * W_prime( dists ), axis=0 )
+            return ret
+
+        return __sum_W__, __sum_W_prime__
 
     @property
     def positions(self):
         return self.__positions
 
     @property
-    def p(self):
+    def canonical_momenta(self):
         return self.__canonical_momenta
 
     def sum(self, a):
@@ -1612,7 +1568,7 @@ class System:
         try:
             return self.__positions_time_differentials
         except AttributeError:
-            self.__positions_time_differential = self.p#/self.rho[:,None]**2
+            self.__positions_time_differential = self.canonical_momenta#/self.rho[:,None]**2
             return self.__positions_time_differential
 
     @property
@@ -1620,19 +1576,19 @@ class System:
         try:
             return self.__canonical_momenta_time_differential
         except AttributeError:
-            self.__canonical_momenta_time_differential = -self.sum( ( self.F[None,:,None] + self.F[:,None,None] ) * self.gradW(self.r, self.r) )
+            self.__canonical_momenta_time_differential = -self.sum( ( self.forces[None,:,None] + self.forces[:,None,None] ) * self.gradW(self.positions, self.positions) )
             return self.__canonical_momenta_time_differential
 
     @property
-    def F(self):
+    def forces(self):
         try:
             return self.__forces
         except AttributeError:
-            self.__forces = self.P/self.neighbor_densities**2# - self.pSqr/self.rho**3
+            self.__forces = self.pressures/self.neighbor_densities**2# - self.pSqr/self.rho**3
             return self.__forces
 
     @property
-    def P(self):
+    def pressures(self):
         try:
             return self.__pressures
         except AttributeError:
@@ -1641,18 +1597,18 @@ class System:
 
     @property
     def energy_densities(self):
-        return 3*self.P
+        return 3*self.pressures
 
     @property
     def pSqr(self):
-        return sum(self.p**2, axis=-1)
+        return sum(self.canonical_momenta**2, axis=-1)
 
     @property
     def neighbor_densities(self):
         try:
             return self.__neighbor_densities
         except AttributeError:
-            self.__neighbor_densities = self.sum( self.W(self.r, self.r) )
+            self.__neighbor_densities = self.sum( self.W(self.positions, self.positions) )
             #print( 'rho.shape', self.__rho.shape )
             return self.__neighbor_densities
 
@@ -1690,15 +1646,15 @@ class System:
         try:
             return self.__J
         except AttributeError:
-            self.__J = sum( self.p, axis=0 )
+            self.__J = sum( self.canonical_momenta, axis=0 )
             return self.__J
 
     @property
-    def v(self):
+    def velocities(self):
         try:
-            return self.__v
+            return self.__velocities
         except AttributeError:
-            self.__v = self.p/self.rho**2
+            self.__velocities = self.canonical_momenta/self.neighbor_densities**2
 
     def ascii_e(self, a, b, l=100):
         x = linspace(a, b, l)
@@ -1718,53 +1674,53 @@ class System:
         line2 = ''.join(line2)
         return '\n'.join((line1,line2))
 
-    def ascii_e_2d(self, a, b, l=100, e_max=None):
-        if e_max is None:
-            e_max = amax(self.e)
+    def ascii_e_2d(self, a, b, length = 100, maximum_energy_density = None):
+        if maximum_energy_density is None:
+            maximum_energy_density = amax(self.energy_densities)
         bg = lambda text, color: "\33[48;5;" + str(color) + "m" + text + "\33[0m"
-        f = .4
-        x_ = linspace(a, b, l)
-        y_ = linspace(a, b, int(l*f))
+        factor = .4
+        x_ = linspace(a, b, length)
+        y_ = linspace(a, b, int(length*factor))
         r__ = array( [ [xi, yi, 0] for yi in y_ for xi in x_ ] )
         pos_min = array([a,a,a])[None,:]
         pos_max = array([b,b,b])[None,:]
-        pos = (self.r - pos_min)/(pos_max - pos_min)
-        pos[:,0] *= l
-        pos[:,1] = (pos[:,1]*l*f).astype(int)
+        pos = (self.positions - pos_min)/(pos_max - pos_min)
+        pos[:,0] *= length
+        pos[:,1] = (pos[:,1]*length*factor).astype(int)
         pos = pos.astype(int)
         pos = [ (ipos[0], ipos[1]) for ipos in pos ]
-        dists = sqrt(sum( (r__[:,None,:] - self.r[None,:,:])**2, axis=-1 ))
+        dists = sqrt(sum( (r__[:,None,:] - self.positions[None,:,:])**2, axis=-1 ))
         W = self.kernel( dists )
-        rho = sum( W, axis=1 )
-        e = 3*rho**(4./3)
+        neighbor_densities = sum( W, axis=1 )
+        energy_densities = 3 * neighbor_densities**(4./3)
         s = ''
         #exit(0)
         for y in range(len(y_)):
             for x in range(len(x_)):
                 #print( (e/e_max)/(195-160) + 160 )
                 #e_ = log( e[x+y*l]+1e-3 )/log( e_max+1e-3 )
-                e_ = e[x+y*l]/e_max
-                e__ = int( e_*(255-232) ) + 232
+                scaled_energy_density = energy_densities[x+y*length]/maximum_energy_density
+                color_code = int( scaled_energy_density*(255-232) ) + 232
                 #print( int(e__), end=' ' )
                 count = pos.count((x,y))
                 marker = (str(count) if count < 10 else '9') if count>0 else ' '
-                s += bg(marker, int(e__))
+                s += bg(marker, int(color_code))
             s += '\n'
-        os.system('cls||clear')
+        os.system('cls || clear')
         print( s )
-        print('e_max', e_max, end=' ')
+        print('maximum_energy_density', maximum_energy_density, end=' ')
         return
 
 
 def collision_test():
-    N = 1000
-    ri = scipy.stats.norm.rvs(0,.1, N)
-    rj = scipy.stats.norm.rvs(0,.1, N)
+    number_of_fluid_elements = 1000
+    ri = scipy.stats.norm.rvs(0,.1, number_of_fluid_elements)
+    rj = scipy.stats.norm.rvs(0,.1, number_of_fluid_elements)
     r1 = array([[ri_-.8,rj_,0] for ri_, rj_ in zip(ri,rj) ]).astype(float)
     p1 = array([[20,0,0] for ri_,rj_ in zip(ri,rj) ]).astype(float)
 
-    ri = scipy.stats.norm.rvs(0,.1, N)
-    rj = scipy.stats.norm.rvs(0,.1, N)
+    ri = scipy.stats.norm.rvs(0,.1, number_of_fluid_elements)
+    rj = scipy.stats.norm.rvs(0,.1, number_of_fluid_elements)
     r2 = array([[ri_+.8,rj_,0] for ri_, rj_ in zip(ri,rj) ]).astype(float)
     p2 = array([[-20,0,0] for ri_,rj_ in zip(ri,rj) ]).astype(float)
 
@@ -1809,14 +1765,14 @@ def collision_test():
     while True:
         for i, (ci, di) in enumerate(zip(c, d)):
             print( i )
-            system = System( next_positions, next_canonical_momenta, W, W_prime )
-            next_positions = system.r + ci * time_step * system.dr_dt
-            system = System( next_positions, p_next, W, W_prime )
-            next_canonical_momenta = system.p + di * time_step * system.dp_dt
+            system = System( next_positions, next_canonical_momenta, kernel_function, kernel_function_derivative )
+            next_positions = system.positions + ci * time_step * system.dr_dt
+            system = System( next_positions, next_canonical_momenta, kernel_function, kernel_function_derivative )
+            next_canonical_momenta = system.canonical_momenta + di * time_step * system.dp_dt
         time += time_step
 
-        r, p = system.r, system.p
-        if amax( abs(r[:,0]) ) > L or amax( abs(r[:,1]) ) > L:
+        positions, canonical_momenta = system.positions, system.canonical_momenta
+        if amax( abs(positions[:,0]) ) > L or amax( abs(positions[:,1]) ) > L:
             L *= 2
         #for a in range(len(r)):
             #for i in range(dim):
@@ -1826,13 +1782,13 @@ def collision_test():
                 #elif r[a][i] > 1 and p[a][i] > 0:
                     #r[a][i] = 1
                     #p[a] = -abs(p[a])
-        p_next = p
-        r_next = r
+        next_canonical_momenta = canonical_momenta
+        next_positions = positions
         system.ascii_e_2d( -L, L, 70, None)
-        print( 't=', t,
-              '[{}]'.format( (system.H-H0)/H0 ),
-              'pmax', amax(sqrt(system.pSqr)),
-              'vmax', amax(sqrt(sum(system.dr_dt**2, axis=-1)))
+        print( 'time=', time,
+              '[{}]'.format( (system.Hamiltonian - initial_Hamiltonian)/initial_Hamiltonian ),
+              'pmax', amax( sqrt(system.pSqr) ),
+              'vmax', amax( sqrt(sum(system.dr_dt**2, axis=-1)) )
               )
 
 if __name__ == '__main__':
